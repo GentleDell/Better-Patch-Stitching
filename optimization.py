@@ -29,6 +29,8 @@ weights  = [1, 1, 1] # the weigh for normal, surfaceVar and chd
 # In[] optimize the point cloud
 chdLsList = []
 diffLslist= []
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+pointCloud= pointCloud.to(device)
 
 # start optimization 
 y = pointCloud.clone()
@@ -38,15 +40,15 @@ surfProp = surfacePropLoss(num_patches, numNeighbor, normals = True, normalLossA
 for cnt in range(maxiters + 1):
 
     x = Variable(y, requires_grad = True)
-    
+
     surfDiff = surfProp.forward(x)
     surfLoss = torch.cat(surfDiff).sum()
     
     chdLoss  = chamferDistance(x, pointCloud)
     
     loss = surfLoss + weights[-1]*chdLoss    
-    loss.backward()
-            
+    loss.backward()    
+
     with torch.no_grad():
         y = x - stepsize*x.grad
     

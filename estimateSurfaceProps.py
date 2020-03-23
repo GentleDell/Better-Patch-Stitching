@@ -60,10 +60,10 @@ def estimateNormal( kNearestPoints : Tensor ) -> Tensor:
     Tensor
         The normal of each point, [B, N, 3].
 
-    """    
+    """      
     # compute the covariance of each point set
     covarianc = kNearestPoints.permute(0, 1, 3, 2) @ kNearestPoints
-    
+     
     # eigen decompose each point set to get the eigen vector
     eigVector = covarianc.symeig( eigenvectors = True )[1][:,:,:,0]
     
@@ -402,12 +402,12 @@ class surfacePropLoss(nn.Module):
                 normalVectorLoss = (1 - (normalPatchwise[:,:,None,:] @ normalVecGlobal[:,:,:,None]).squeeze().pow(2)).mean()[None]
             
             surfacePropDiff.append(normalVectorLoss * self._normalWeight)
-            
+        
         if self._useSurfVar:
             SurfVarGlobal    = estimateSurfVariance(kNearestNeighbor)
             SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors)
             SurfVarianceLoss = (SurfVarPatchwise - SurfVarGlobal).pow(2).mean()[None]
         
-            surfacePropDiff.append(SurfVarianceLoss * self._surfVarWeight)
-                
+            surfacePropDiff.append(SurfVarianceLoss * self._surfVarWeight)  
+        
         return surfacePropDiff
