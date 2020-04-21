@@ -188,8 +188,8 @@ def visNormalDiff( points : Tensor, globalNormal : Tensor, patchwiseNormal : Ten
     # separate points
     pcPatchwise, pcGlobal = points.clone(), points.clone()
     if hAlign:
-        pcGlobal[:,0] = pcGlobal[:,0] + 1
-        pcPatchwise[:,0] = pcPatchwise[:,0] - 1
+        pcGlobal[:,0] = pcGlobal[:,0] + 2
+        pcPatchwise[:,0] = pcPatchwise[:,0] - 2
     else:
         pcGlobal[:,1] = pcGlobal[:,1] + 1
         pcPatchwise[:,1] = pcPatchwise[:,1] - 1
@@ -237,4 +237,30 @@ def visNSurface(parameters : Tensor, points : Tensor):
     ax.set_zlabel('Z Label')
     
     plt.show()
-    
+
+
+
+# ========== using ipyvolume with jupyter notebook ==========
+
+# import torch
+# import numpy as np
+# import ipyvolume as ipv
+# from torch import Tensor
+# import open3d as o3d
+# import matplotlib.colors as mcolors
+# from scipy.spatial.transform import Rotation
+
+
+# from visutils import generateColors
+# from estimateSurfaceProps import *
+
+# pointCloud = torch.load('./ShapeReconstructionNet/data/reconstructedShape/pc1.pt')[0][None, :, :]
+
+# optPoints  = torch.load('JointOpt_pc_directioninsensitive.pt')
+# patchColor = generateColors(numPatches=25, numPoints=pointCloud.shape[1])
+# x, y, z    = optPoints.numpy()[:,0], optPoints.numpy()[:,1], optPoints.numpy()[:,2]
+
+# ipv.figure(width=600, height=600)
+# ipv.pylab.scatter(x+0.5, y, z, color = patchColor, size=4, marker="sphere")
+# ipv.squarelim()
+# ipv.show()
