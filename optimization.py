@@ -17,8 +17,9 @@ from estimateSurfaceProps import surfacePropLoss, chamferDistance, getkNearestNe
 # patch property
 numNeighbor = 8
 num_patches = 25
-pointCloud  = torch.cat([torch.load('./ShapeReconstructionNet/data/reconstructedShape/pc1.pt')[0][None, :],
-                         torch.load('./ShapeReconstructionNet/data/reconstructedShape/pc0.pt')[0][None, :]], dim = 0)
+pointCloud  = torch.load('./ShapeReconstructionNet/data/reconstructedShape/estimation.pt').to('cpu')
+gtPointCloud= torch.load('./ShapeReconstructionNet/data/reconstructedShape/gtData.pt').to('cpu')
+gtPtNormals = torch.load('./ShapeReconstructionNet/data/reconstructedShape/gtNormal.pt').to('cpu')
 
 # optimization property
 maxiters = 100
@@ -29,8 +30,10 @@ weights  = [1, 1, 1] # the weigh for normal, surfaceVar and chd
 # In[] optimize the point cloud
 chdLsList = []
 diffLslist= []
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = "cpu"    # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 pointCloud= pointCloud.to(device)
+gtPtCloud = gtPointCloud.to(device)
+gtNormals = gtPtNormals.to(device)
 
 # start optimization 
 y = pointCloud.clone()
@@ -41,7 +44,7 @@ for cnt in range(maxiters + 1):
 
     x = Variable(y, requires_grad = True)
 
-    surfDiff = surfProp.forward(x)
+    surfDiff = surfProp.forward(x, gtPointCloud, gtNormals)
     surfLoss = torch.cat(surfDiff).sum()
     
     chdLoss  = chamferDistance(x, pointCloud)
@@ -69,7 +72,7 @@ for batch in range(optimizedPc.shape[0]):
     if surfProp._useNormals:
         normalPatchwise  = estimatePatchNormal(optimizedPc[batch,:,:][None, :, :], num_patches, numNeighbor)
         
-        kNearestNeighbor = getkNearestNeighbor(optimizedPc[batch,:,:][None, :, :], numNeighbor)
+        kNearestNeighbor = getkNearestNeighbor(optimizedPc[batch,:,:][None, :, :], numNeighbor, None, None, 0)
         normalVecGlobal  = estimateNormal(kNearestNeighbor)
         
         visNormalDiff(optimizedPc[batch,:,:], normalVecGlobal[0], normalPatchwise[0], num_patches) 
@@ -79,7 +82,7 @@ for batch in range(optimizedPc.shape[0]):
         surfVarPtch = estimatePatchSurfVar(optimizedPc[batch,:,:][None, :, :], num_patches, numNeighbor)
         surfVarPtch = surfVarPtch.repeat(3,1).t()
         
-        kNearestNeighbor = getkNearestNeighbor(optimizedPc[batch,:,:][None, :, :], numNeighbor)
+        kNearestNeighbor = getkNearestNeighbor(optimizedPc[batch,:,:][None, :, :], numNeighbor,  None, None, 0)
         surfaceVarGlobal = estimateSurfVariance(kNearestNeighbor)
         surfaceVarGlobal = surfaceVarGlobal.repeat(3,1).t()
         

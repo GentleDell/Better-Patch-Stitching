@@ -10,8 +10,10 @@ import torch
 import torch.nn as nn 
 from torch import Tensor
 
+_USRINF = 1e8
 
-def getkNearestNeighbor( points : Tensor, k : int )  -> Tensor: 
+def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor, 
+                         gtNormal : Tensor, angleThreshold : float)  -> Tensor: 
     """
     It finds the k-nearest neighbors for each points. The mean of each point
     cluster is removed.
@@ -22,6 +24,20 @@ def getkNearestNeighbor( points : Tensor, k : int )  -> Tensor:
         Point cloud to find the knn, [B, N, 3]. 
     k : int
         The number of nearest neighbors.
+    gtPoints : Tensor
+        The ground truth point cloud. It is optional.
+    gtNormal : Tensor
+        The ground truth normal of the point cloud.
+        
+        To avoid including a point from other sides in KNN, making the normal
+        and surface variance estimation fail/do not help the final point cloud,
+        the gtNormal of the point's correspoing gtPoint are used. Only points
+        whose gtNormal is close the noraml of the src point will be considered
+        as KNN of the targe point. 
+        
+        It is optional but it has to be given together with gtPoints. 
+    angleThreshold : float 
+        The threshold to remove bad knn points.
 
     Returns
     -------
@@ -29,17 +45,36 @@ def getkNearestNeighbor( points : Tensor, k : int )  -> Tensor:
         k nearest neighbors of each given points [B, N, k, 3].
 
     """
-    numBatchs = points.shape[0]
-    numPoints = points.shape[1]
-    dimension = points.shape[2]
+    srcnumBatchs = points.shape[0]
+    srcnumPoints = points.shape[1]
+    srcdimension = points.shape[2]
     
-    distanceMatrix = ( points.detach().reshape(numBatchs, numPoints, 1, dimension)
-                     - points.detach().reshape(numBatchs, 1, numPoints, dimension)
+    distanceMatrix = ( points.detach().reshape(srcnumBatchs, srcnumPoints, 1, srcdimension)
+                     - points.detach().reshape(srcnumBatchs, 1, srcnumPoints, srcdimension)
                       ).pow(2).sum(dim = 3).sqrt()
     
-    colCloseIndice = distanceMatrix.topk(k, dim = 1, largest = False)[1].permute(0,2,1)
-    kNearestPoints = points[:, colCloseIndice, :][torch.arange(numBatchs), torch.arange(numBatchs), :, :]
+    # if the gtNormal and gtPoints are available, we would constraint the Knn
+    if gtNormal is not None and gtPoints is not None:
+        
+        dstnumBatchs = gtPoints.shape[0]
+        dstnumPoints = gtPoints.shape[1]
+        dstdimension = gtPoints.shape[2]
     
+        # get the normal of the nearest groundtruth point of each point
+        distanceToGT  = ( points.detach().reshape(srcnumBatchs, srcnumPoints, 1, srcdimension)
+                          - gtPoints.detach().reshape(dstnumBatchs, 1, dstnumPoints, dstdimension)
+                          ).pow(2).sum(dim = 3).sqrt()
+        srcNearestInd = distanceToGT.argmin(dim = 2)
+        srcIdealNormal= gtNormal[:, srcNearestInd, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
+        
+        angleBtnormal = srcIdealNormal @ srcIdealNormal.permute(0,2,1) 
+        invalidKnnPt  = angleBtnormal <= torch.tensor(angleThreshold).cos() 
+        distanceMatrix[invalidKnnPt] = _USRINF
+                
+        
+    colCloseIndice = distanceMatrix.topk(k, dim = 1, largest = False)[1].permute(0,2,1)
+    kNearestPoints = points[:, colCloseIndice, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
+        
     # set the target points to be the origin of the local coordinates
     realignedPoint = kNearestPoints - points[:,:,None,:].repeat_interleave(k, dim = 2)
     
@@ -72,7 +107,9 @@ def estimateNormal( kNearestPoints : Tensor ) -> Tensor:
     return eigVector
     
 
-def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int) -> Tensor:
+def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int, 
+                        gtPoints : Tensor = None, gtNormal : Tensor = None,
+                        angleThreshold : float = 1.5708) -> Tensor:
     """
     It estimates patch-wise normal vectors.
 
@@ -84,6 +121,20 @@ def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int) ->
         The number of patches.
     numNeighbor : int
         The number of nearest neigbors to estiamte normal.
+    gtPoints : Tensor
+        The ground truth point cloud. It is optional.
+    gtNormal : Tensor
+        The ground truth normal of the point cloud.
+        
+        To avoid including a point from other sides in KNN, making the normal
+        and surface variance estimation fail/do not help the final point cloud,
+        the gtNormal of the point's correspoing gtPoint are used. Only points
+        whose gtNormal is close the noraml of the src point will be considered
+        as KNN of the targe point. 
+        
+        It is optional but it has to be given together with gtPoints. 
+    angleThreshold : float 
+        The threshold to remove bad knn points.
 
     Returns
     -------
@@ -104,8 +155,12 @@ def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int) ->
             
             patchPC = points[batch, patchCnt*patchPoint : (patchCnt + 1)*patchPoint, :][None, :, :]
             
-            kNearest= getkNearestNeighbor(patchPC, numNeighbor)
-            
+            if gtPoints is not None:
+                kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints[batch][None, :, :],
+                                              gtNormal[batch][None, :, :], angleThreshold)
+            else:
+                kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints, gtNormal, angleThreshold)
+                
             normals = estimateNormal(kNearest)
             
             batchNormalVec.append(normals)
@@ -149,7 +204,9 @@ def estimateSurfVariance( kNearestPoints : Tensor ) -> Tensor:
     return surfaceVar
 
 
-def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int) -> Tensor:
+def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int,
+                         gtPoints : Tensor = None, gtNormal : Tensor = None,
+                         angleThreshold : float = 1.5708) -> Tensor:
     """
     It estimates patch-wise surface variance.
 
@@ -181,7 +238,11 @@ def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int) -
             
             patchPC = points[batch, patchCnt*patchPoint : (patchCnt + 1)*patchPoint, :][None, :, :]
             
-            kNearest= getkNearestNeighbor(patchPC, numNeighbor)
+            if gtPoints is not None:
+                kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints[batch][None, :, :],
+                                              gtNormal[batch][None, :, :], angleThreshold)
+            else:
+                kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints, gtNormal, angleThreshold)
             
             surfVar = estimateSurfVariance(kNearest)
             
@@ -197,7 +258,18 @@ def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int) -
 def lstq(A : Tensor, Y : Tensor) -> Tensor:
     """
     It finds the least square solution of the linear system Ax = Y to estimate
-    surface parameters.
+    surface parameters.gtPoints : Tensor
+        The ground truth point cloud. It is optional.
+    gtNormal : Tensor
+        The ground truth normal of the point cloud.
+        
+        To avoid including a point from other sides in KNN, making the normal
+        and surface variance estimation fail/do not help the final point cloud,
+        the gtNormal of the point's correspoing gtPoint are used. Only points
+        whose gtNormal is close the noraml of the src point will be considered
+        as KNN of the targe point. 
+        
+        It is optional but it has to be given together with gtPoints. 
 
     We assume A to be full column rank, otherwise we would have to modify the
     corresponding submatrix by adding lambda * eye(num_col), where lambda ~ 0.01.
@@ -370,7 +442,7 @@ class surfacePropLoss(nn.Module):
     
     def __init__(self, numPatches : int, kNeighbors : int, normals : bool = True,
                  normalLossAbs : bool = True, surfaceVariances : bool = False,
-                 weight : list = [1,1]):
+                 weight : list = [1,1], angleThreshold : float = 1.5708):
         
         nn.Module.__init__(self)
         self._numPatches = numPatches
@@ -383,16 +455,18 @@ class surfacePropLoss(nn.Module):
         self._surfVarWeight = weight[1]
            
         self._normalLossAbs = normalLossAbs
+        self._angleThreshold= angleThreshold
 
         
-    def forward(self, pointCloud : Tensor):
+    def forward(self, pointCloud : Tensor, gtPoints : Tensor = None, gtNormal : Tensor = None):
         
-        kNearestNeighbor = getkNearestNeighbor(pointCloud, self._kNeighbors)
+        kNearestNeighbor = getkNearestNeighbor(pointCloud, self._kNeighbors, gtPoints, gtNormal, self._angleThreshold)
         surfacePropDiff  = []
         
         if self._useNormals:
             normalVecGlobal  = estimateNormal(kNearestNeighbor)
-            normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors)
+            normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors, 
+                                                   gtPoints, gtNormal, self._angleThreshold)
             
             if self._normalLossAbs: 
                 # use the absolute value difference between normal vectors
@@ -405,7 +479,9 @@ class surfacePropLoss(nn.Module):
         
         if self._useSurfVar:
             SurfVarGlobal    = estimateSurfVariance(kNearestNeighbor)
-            SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors)
+            SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors,
+                                                    gtPoints, gtNormal, self._angleThreshold)
+            
             SurfVarianceLoss = (SurfVarPatchwise - SurfVarGlobal).pow(2).mean()[None]
         
             surfacePropDiff.append(SurfVarianceLoss * self._surfVarWeight)  
