@@ -15,16 +15,16 @@ from estimateSurfaceProps import surfacePropLoss, chamferDistance, getkNearestNe
                                  estimateNormal, estimatePatchNormal, estimateSurfVariance, estimatePatchSurfVar
 
 # patch property
-numNeighbor = 8
+numNeighbor = 5
 num_patches = 25
-pointCloud  = torch.load('./ShapeReconstructionNet/data/reconstructedShape/estimation.pt').to('cpu')
-gtPointCloud= torch.load('./ShapeReconstructionNet/data/reconstructedShape/gtData.pt').to('cpu')
-gtPtNormals = torch.load('./ShapeReconstructionNet/data/reconstructedShape/gtNormal.pt').to('cpu')
+pointCloud  = torch.load('./ShapeReconstructionNet/data/reconstructedShape/cellphone/estimation.pt').to('cpu')
+gtPointCloud= torch.load('./ShapeReconstructionNet/data/reconstructedShape/cellphone/gtData.pt').to('cpu')
+gtPtNormals = torch.load('./ShapeReconstructionNet/data/reconstructedShape/cellphone/gtNormal.pt').to('cpu')
 
 # optimization property
 maxiters = 100
 stepsize = 1e-1
-weights  = [1, 1, 1] # the weigh for normal, surfaceVar and chd
+weights  = [1, 1, 0] # the weigh for normal, surfaceVar and chd
  
 
 # In[] optimize the point cloud
@@ -38,7 +38,7 @@ gtNormals = gtPtNormals.to(device)
 # start optimization 
 y = pointCloud.clone()
 surfProp = surfacePropLoss(num_patches, numNeighbor, normals = True, normalLossAbs = False, 
-                           surfaceVariances = True , weight  = weights[:2])
+                           surfaceVariances = False , weight  = weights[:2], angleThreshold = 1.0)
 
 for cnt in range(maxiters + 1):
 
@@ -76,6 +76,7 @@ for batch in range(optimizedPc.shape[0]):
         normalVecGlobal  = estimateNormal(kNearestNeighbor)
         
         visNormalDiff(optimizedPc[batch,:,:], normalVecGlobal[0], normalPatchwise[0], num_patches) 
+        visNormalDiff(gtPtCloud[batch], gtNormals[0], gtNormals[0], num_patches) 
         
     if surfProp._useSurfVar:
         
