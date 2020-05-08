@@ -239,59 +239,72 @@ def visNSurface(parameters : Tensor, points : Tensor):
     plt.show()
 
 
+def visSpecifiedPoints(points: Tensor, indices: list, colors: list = None):
+    '''
+    This function visualizes a knn group of the given points, which is 
+    specified by the knnIndices. This function does not support batch.
+    
+    The k nearest neigbors are green and the other points are black.
+
+    Parameters
+    ----------
+    points : Tensor
+        Point cloud to be visulized, [N,3].
+    indices : list
+        A list of indices of points of the given point cloud to visualize.
+    colors : list
+        A list of colors corresponding to the list of indices. The default is 
+        None.
+        
+    Returns
+    -------
+    None.
+
+    '''
+    # if the color list is not given, create it
+    if colors is None:
+        colors = []
+        for cnt in range(len(indices)):
+           colors.append( mcolors.to_rgb(mcolors.CSS4_COLORS[clr_names[cnt]]) )
+    
+    # create color tensor for visualization 
+    viscolor   = torch.zeros_like(points)
+    for cnt, ind in enumerate(indices):
+        viscolor[ind,:] = Tensor(colors[cnt])
+    
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector( points )    
+    pcd.colors = o3d.utility.Vector3dVector( viscolor )
+
+    custom_draw_geometry_with_key_callback(pcd)
+    
+
 
 ## ========== using ipyvolume with jupyter notebook ==========
 
-# import argparse
-# from os.path import join as pjn
-
 # import torch
-# from torch import Tensor
-# from torch.utils.data import DataLoader
-# from torch.utils.tensorboard import SummaryWriter
-
 # import numpy as np
 # import ipyvolume as ipv
-
+# from torch import Tensor
 # import open3d as o3d
 # import matplotlib.colors as mcolors
 # from scipy.spatial.transform import Rotation
 
+
 # from visutils import generateColors
 # from estimateSurfaceProps import *
 
-# path_conf = 'config.yaml'
-# folderPcs = '../syn_server/data/car'
-# pcForVIs  = 'pc4.pt'
-# pcIndex   = 0
-# gtForVis  = 'gt' + pcForVIs
+# pointCloud = torch.load('./ShapeReconstructionNet/data/reconstructedShape/pc1.pt')[0][None, :, :]
 
+# optPoints  = torch.load('JointOpt_pc_directioninsensitive.pt')
+# patchColor = generateColors(numPatches=25, numPoints=pointCloud.shape[1])
+# x, y, z    = optPoints.numpy()[:,0], optPoints.numpy()[:,1], optPoints.numpy()[:,2]
 
-# thisfoler = 'fullPretrained'
-
-# path2pc = pjn(folderPcs, thisfoler)
-# pointCloud = torch.load( pjn(path2pc, pcForVIs) )[pcIndex]
-
-# patchColor = generateColors(numPatches=25, numPoints=pointCloud.shape[0])
-# x, y, z    = pointCloud.numpy()[:,0], pointCloud.numpy()[:,1], pointCloud.numpy()[:,2]
-
-# ipv.figure(width=800, height=800)
-# ipv.pylab.scatter(x, y, z, color = patchColor, size=3, marker="sphere")
+# ipv.figure(width=600, height=600)
+# ipv.pylab.scatter(x+0.5, y, z, color = patchColor, size=4, marker="sphere")
 # ipv.squarelim()
 # ipv.show()
 
-
-# thisfoler = 'fullPretrained_0.001_k8_normal'
-
-# path2pc = pjn(folderPcs, thisfoler)
-# pointCloud = torch.load( pjn(path2pc, gtForVis) )[pcIndex]
-
-# x, y, z    = pointCloud.numpy()[:,0], pointCloud.numpy()[:,1], pointCloud.numpy()[:,2]
-
-# ipv.figure(width=800, height=800)
-# ipv.pylab.scatter(x, y, z, size=3, marker="sphere")
-# ipv.squarelim()
-# ipv.show()
 
 
 ## ========== point cloud reconstruction ==========
@@ -367,7 +380,7 @@ def visNSurface(parameters : Tensor, points : Tensor):
 #         for bi, batch in enumerate(dl_va):
 #             model(batch['pcloud'])
 #             torch.save( model.pc_pred.detach().cpu(), pjn( path_save, 'pc{}.pt'.format(bi + e*conf['batch_size']) ) )
-#             torch.save( batch['pcloud'].cpu(), pjn( path_save, 'gtpc{}.pt'.format(bi + e*conf['batch_size']) ) )
+            
 
 # def inferenceAll(conf_path: str, weightFolder : str, save_path : str = None, 
 #                  numepoch: int = 4):
@@ -401,10 +414,3 @@ def visNSurface(parameters : Tensor, points : Tensor):
 #             savePath = '/'.join(weightpath.split('/')[:-1])
             
 #         pcInference(conf_path, weightpath, savePath, numepoch)
-        
-        
-# path_conf = 'config.yaml'
-# # path_weights = '../../syn_server/data/cellphone/cellphone_epoch717_0.001_k5_normal/chkpt_cellphone_ep717_weight0.001_k5_normal.tar'
-# # path_save = '../../syn_server/data/cellphone/cellphone_epoch717_0.001_k5_normal'
-
-# inferenceAll(path_conf, '../../syn_server/data/cellphone/', numepoch = 1)

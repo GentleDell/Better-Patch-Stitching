@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn 
 from torch import Tensor
 
+from visutils import visSpecifiedPoints, visNormalDiff
+
 _USRINF = 1e8
 
 def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor, 
@@ -53,7 +55,8 @@ def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor,
                      - points.detach().reshape(srcnumBatchs, 1, srcnumPoints, srcdimension)
                       ).pow(2).sum(dim = 3).sqrt()
     
-    # if the gtNormal and gtPoints are available, we would constraint the Knn
+    # if the gtNormal and gtPoints are available, we would use the gtNormal to 
+    # constraint the knn with the angle threshold
     if gtNormal is not None and gtPoints is not None:
         
         dstnumBatchs = gtPoints.shape[0]
@@ -70,11 +73,31 @@ def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor,
         angleBtnormal = srcIdealNormal @ srcIdealNormal.permute(0,2,1) 
         invalidKnnPt  = angleBtnormal <= torch.tensor(angleThreshold).cos() 
         distanceMatrix[invalidKnnPt] = _USRINF
-                
+        
+        # This call could be used to verify that the global knn is 
+        # constrainted by the angle threshold 
+        # visSpecifiedPoints(points[0].detach(), [torch.where(invalidKnnPt[0,769] == 0)[0]])
+        
+    # if the gtNormal is given while the gtPoints is not given,it treats 
+    # the gtNormal as the predicted normal vector, so here we directly use 
+    # the normal to reject invalid neighbors.
+    elif gtNormal is not None and gtPoints is None:
+        predictNormal = gtNormal/gtNormal.norm(dim=2)[:,:,None]
+        angleBtnormal = predictNormal @ predictNormal.permute(0,2,1) 
+        invalidKnnPt  = angleBtnormal <= torch.tensor(angleThreshold).cos() 
+        distanceMatrix[invalidKnnPt] = _USRINF
+        
+        # This call could be used to verify that the global knn is 
+        # constrainted by the angle threshold 
+        # visSpecifiedPoints(points[0].detach(), [torch.where(invalidKnnPt[0,769] == 0)[0]])
         
     colCloseIndice = distanceMatrix.topk(k, dim = 1, largest = False)[1].permute(0,2,1)
     kNearestPoints = points[:, colCloseIndice, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
-        
+    
+    # This call could be used to verify that patchwise knns are not 
+    # constrainted by the angle threshold.
+    # visSpecifiedPoints(points[0].detach(), [colCloseIndice[0,69]])
+    
     # set the target points to be the origin of the local coordinates
     realignedPoint = kNearestPoints - points[:,:,None,:].repeat_interleave(k, dim = 2)
     
@@ -155,7 +178,7 @@ def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int,
             
             patchPC = points[batch, patchCnt*patchPoint : (patchCnt + 1)*patchPoint, :][None, :, :]
             
-            if gtPoints is not None:
+            if gtPoints is not None and gtNormal is not None:
                 kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints[batch][None, :, :],
                                               gtNormal[batch][None, :, :], angleThreshold)
             else:
@@ -238,7 +261,7 @@ def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int,
             
             patchPC = points[batch, patchCnt*patchPoint : (patchCnt + 1)*patchPoint, :][None, :, :]
             
-            if gtPoints is not None:
+            if gtPoints is not None and gtNormal is not None:
                 kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints[batch][None, :, :],
                                               gtNormal[batch][None, :, :], angleThreshold)
             else:
@@ -438,11 +461,172 @@ def chamferDistance( srcPoints : Tensor, refPoints : Tensor) -> Tensor:
     return chd
 
 
+def criterionStitching(uvspace: Tensor, points: Tensor, numPatch: int, 
+                       marginSize: float = 0.1):
+    '''
+    It computes the stitching criterion to evaluate the patch stitching 
+    quality.
+    
+    Given a predicted point clouds batch, for each patch of each point cloud,
+    it takes points at boundaries, according to the marginSize parameter. Then
+    it compute the distance between each point of an margine to the points of
+    margins of other patches. Next, for each margin area, it averages the
+    smallest distance of points in the margin as the stitching quality of the
+    margin. Finally, it averages the stitching quality of all margins of all 
+    patches in this batch as the stitching quality.
+
+    Parameters
+    ----------
+    uvspace : Tensor
+        The sample 2D points in the uv space, [B, N, 2].
+    points : Tensor
+        The predicted point cloud, [B, N, 3].
+    numPatch : int
+        The number of patches.
+    marginSize : float, optional
+        The size of margines. The default is 0.1.
+
+    Returns
+    -------
+    Tensor
+        stitching quality.
+
+    '''
+    
+    batchSize  = points.shape[0]
+    patchSize  = points.shape[1]/numPatch
+    marginSize = min(max(marginSize, 0.01), 0.5)
+    
+    # get all points at different margins according to the uv points
+    leftMargin = (uvspace[:,:,0] < marginSize) * (uvspace[:,:,1] < 1 - marginSize)
+    topMargin  = (uvspace[:,:,0] < 1 - marginSize) * (uvspace[:,:,1] > 1 -  marginSize)
+    rightMargin= (uvspace[:,:,0] > 1 - marginSize) * (uvspace[:,:,1] > marginSize)
+    bottMargin = (uvspace[:,:,0] > marginSize) * (uvspace[:,:,1] < marginSize)
+    
+    # to visualize the margin points and the full point cloud
+    # visSpecifiedPoints(points[0].detach().to('cpu'),
+    #                     [torch.where(leftMargin[0])[0].to('cpu'),
+    #                     torch.where(topMargin[0])[0].to('cpu'),
+    #                     torch.where(rightMargin[0])[0].to('cpu'),
+    #                     torch.where(bottMargin[0])[0].to('cpu')])
+    
+    batchStitchingLoss = torch.tensor([0.])
+    batchStitchingDist = []
+    batchStitchingIndex= []
+    for batch in range(batchSize):
+        # points at the left margin, xxPatch is to distinguish patches and 
+        # margins, for possible processing.
+        leftPoints = points[batch, leftMargin[batch,:], :]
+        leftPatch  = torch.where(leftMargin[batch,:])[0]//patchSize + 0.1
+        # points at the top margin
+        topPoints  = points[batch, topMargin[batch,:], :]
+        topPatch   = torch.where(topMargin[batch,:])[0]//patchSize + 0.2
+        # points at the right margin
+        rightPoints = points[batch, rightMargin[batch,:], :]
+        rightPatch  = torch.where(rightMargin[batch,:])[0]//patchSize + 0.3
+        # points at the bottom margin
+        bottPoints = points[batch, bottMargin[batch,:], :]
+        bottPatch  = torch.where(bottMargin[batch,:])[0]//patchSize + 0.4
+        
+        boundaryPoints = torch.cat((leftPoints, topPoints, rightPoints, bottPoints), dim = 0)
+        boundaryIndice = torch.cat((leftPatch, topPatch, rightPatch, bottPatch), dim = 0)
+        
+        # sort the points and indices by patches and by margins
+        # 0.1 = left, 0.2 = top, 0.3 = right, 0.4 = bottom
+        patchOrder = torch.argsort(boundaryIndice)
+        boundaryPoints = boundaryPoints[patchOrder, :]
+        boundaryIndice = boundaryIndice[patchOrder]
+        
+        # visSpecifiedPoints(points[batch].detach().to('cpu'), [torch.where(boundaryIndice < 1)[0].to('cpu')])
+        
+        # compute distances between points in margins
+        distanceMatrix = (boundaryPoints[None, :, :] - boundaryPoints[:, None, :]).norm(dim=2)
+        
+        # remove distances between point from the same patch
+        for ind in range(numPatch):
+            subMatrix = torch.where((boundaryIndice < ind + 1) * (boundaryIndice > ind))[0]
+            distanceMatrix[subMatrix.min():subMatrix.max(), subMatrix.min():subMatrix.max()] = _USRINF
+        
+        # keep the smallest distance 
+        smallestDistance = torch.min(distanceMatrix, dim=1)[0]
+        
+        # keep the distance and indices for future use
+        batchStitchingDist.append(smallestDistance)
+        batchStitchingIndex.append(boundaryIndice)
+        
+        # compute stitching loss for each patch
+        # for each margin of the patch, compute the average smallest. Then sum
+        # the 4 averages up as the patch stitching loss
+        for ind in range(numPatch):
+            batchStitchingLoss += smallestDistance[boundaryIndice == ind + 0.1].mean() + \
+                                  smallestDistance[boundaryIndice == ind + 0.2].mean() + \
+                                  smallestDistance[boundaryIndice == ind + 0.3].mean() + \
+                                  smallestDistance[boundaryIndice == ind + 0.4].mean()
+    
+    # average the loss over all batches
+    batchStitchingLoss /= batchSize
+    
+    return batchStitchingLoss
+        
+
+def normalDifference(gtPoints: Tensor, gtNormals: Tensor, 
+                     predPoints: Tensor, globalNormals: Tensor):
+    '''
+    It computes the difference of the normal vectors.
+    
+    For each point, it search for the closest gt point and uses the gt normal 
+    of the gt point as the ideal normal of the point. Then, it compute the 
+    orientation insensitive difference between the ideal normal vectors and 
+    the globally estimated normal vector.
+
+    Parameters
+    ----------
+    gtPoints : Tensor
+        Ground truth points.
+    gtNormals : Tensor
+        Ground truth normals.
+    predPoints : Tensor
+        Predicted points.
+    globalNormals : Tensor
+        Globally estimated normals.
+
+    Returns
+    -------
+    normalDiffAvg : 
+        The orientation insensitive difference.
+
+    '''
+    gtNormals = gtNormals/torch.norm(gtNormals, dim = 2)[:,:,None]
+    
+    srcnumBatchs = predPoints.shape[0]
+    srcnumPoints = predPoints.shape[1]
+    srcdimension = predPoints.shape[2]
+    
+    dstnumBatchs = gtPoints.shape[0]
+    dstnumPoints = gtPoints.shape[1]
+    dstdimension = gtPoints.shape[2]
+
+    # get the normal of the nearest groundtruth point of each point
+    distanceToGT  = ( predPoints.detach().reshape(srcnumBatchs, srcnumPoints, 1, srcdimension)
+                      - gtPoints.detach().reshape(dstnumBatchs, 1, dstnumPoints, dstdimension)
+                      ).pow(2).sum(dim = 3).sqrt()
+    srcNearestInd = distanceToGT.argmin(dim = 2)
+    srcIdealNormal= gtNormals[:, srcNearestInd, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
+    
+    # use direction insensitive criterion
+    normalDiffAvg = (1 - (srcIdealNormal[:,:,None,:] @ globalNormals[:,:,:,None]).squeeze().pow(2)).mean()
+    
+    # visualize the normal difference
+    # visNormalDiff(predPoints[0].to('cpu'), srcIdealNormal[0].to('cpu'), globalNormals[0].to('cpu'), 25)
+    
+    return normalDiffAvg
+
+
 class surfacePropLoss(nn.Module):
     
     def __init__(self, numPatches : int, kNeighbors : int, normals : bool = True,
                  normalLossAbs : bool = True, surfaceVariances : bool = False,
-                 weight : list = [1,1], angleThreshold : float = 1.5708):
+                 weight : list = [1,1], angleThreshold : float = 3.14159):
         
         nn.Module.__init__(self)
         self._numPatches = numPatches
@@ -465,8 +649,7 @@ class surfacePropLoss(nn.Module):
         
         if self._useNormals:
             normalVecGlobal  = estimateNormal(kNearestNeighbor)
-            normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors, 
-                                                   gtPoints, gtNormal, self._angleThreshold)
+            normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors, self._angleThreshold)
             
             if self._normalLossAbs: 
                 # use the absolute value difference between normal vectors
@@ -479,11 +662,10 @@ class surfacePropLoss(nn.Module):
         
         if self._useSurfVar:
             SurfVarGlobal    = estimateSurfVariance(kNearestNeighbor)
-            SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors,
-                                                    gtPoints, gtNormal, self._angleThreshold)
+            SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors, self._angleThreshold)
             
             SurfVarianceLoss = (SurfVarPatchwise - SurfVarGlobal).pow(2).mean()[None]
         
             surfacePropDiff.append(SurfVarianceLoss * self._surfVarWeight)  
         
-        return surfacePropDiff
+        return surfacePropDiff, normalVecGlobal
