@@ -1,0 +1,78 @@
+# Config. file to train [1].
+#
+# [1] Bednarik Jan et al. Shape Reconstruction by Learning Differentiable
+#     Surface Representations. CoRR 2019.
+#
+# Author: Jan Bednarik, jan.bednarik@epfl.ch
+# Date: 17.2.2020
+#
+
+# Data
+path_root_imgs: '../../Dataset_mini/ShapeNetRendering/ShapeNetRendering'
+path_root_pclouds: '../../Dataset_mini/customShapeNet'
+path_category_file: '../../Dataset_mini/ShapeNetRendering/synsetoffset2category.txt'
+
+### Model
+N: 2500
+M: 2500
+code: 1024
+
+# Encoder
+enc_freeze: False
+enc_weights: # Path
+normalize_cw: False
+
+# Decoder
+num_patches: 25
+
+# for FN decoder
+dec_activ_fns: 'softplus'
+dec_use_tanh: False
+dec_batch_norm: False
+
+# Losses
+loss_scaled_isometry: True
+alpha_scaled_isometry: 0.001
+alphas_sciso:
+  E: 1.
+  G: 1.
+  skew: 1.
+  stretch: 0.
+  total_area: 100
+  total_area_mult: 1.
+
+loss_smooth_surfaces: True
+surface_varinace: False
+number_k_neighbor: 8
+alpha_surfProp: 0.001
+
+angle_threshold: 60  # degree
+reject_predNormal: False
+margin_size: 0.1
+
+
+# Training
+epochs: 1000
+batch_size: 4
+lr: 0.001
+
+# lr scheduler
+reduce_lr_on_plateau: True
+lr_factor: 0.3
+lr_patience: 30
+lr_min: 0.000001
+lr_threshold: 0.0001
+
+# Savers
+train_state_save_period: 1
+pcloud_save_period: 5
+pcloud_samples_per_period: 3
+
+# Data
+#tr_classes: ['plane', 'bench', 'cabinet', 'car', 'chair', 'monitor', 'lamp',
+#             'speaker', 'firearm', 'couch', 'table', 'cellphone', 'watercraft']
+#va_classes: ['plane', 'bench', 'cabinet', 'car', 'chair', 'monitor', 'lamp',
+#             'speaker', 'firearm', 'couch', 'table', 'cellphone', 'watercraft']
+
+tr_classes: ['cellphone']
+va_classes: ['cellphone']
