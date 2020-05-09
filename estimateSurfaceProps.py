@@ -555,13 +555,17 @@ def criterionStitching(uvspace: Tensor, points: Tensor, numPatch: int,
         batchStitchingIndex.append(boundaryIndice)
         
         # compute stitching loss for each patch
-        # for each margin of the patch, compute the average smallest. Then sum
-        # the 4 averages up as the patch stitching loss
+        # for each margin of the patch, compute the average smallest.
+        # Ideally, the sum of the 4 averages is patch stitching loss. However,
+        # as the uvspace is uniform distribution, leading to empty margin, 
+        # here we have to use mean() to avoid errors. 
         for ind in range(numPatch):
-            batchStitchingLoss += smallestDistance[boundaryIndice == ind + 0.1].mean() + \
-                                  smallestDistance[boundaryIndice == ind + 0.2].mean() + \
-                                  smallestDistance[boundaryIndice == ind + 0.3].mean() + \
-                                  smallestDistance[boundaryIndice == ind + 0.4].mean()
+            marginLoss = Tensor([smallestDistance[boundaryIndice == ind + 0.1].mean(),
+                                 smallestDistance[boundaryIndice == ind + 0.2].mean(),
+                                 smallestDistance[boundaryIndice == ind + 0.3].mean(),
+                                 smallestDistance[boundaryIndice == ind + 0.4].mean()])
+                    
+            batchStitchingLoss += marginLoss[~torch.isnan(marginLoss)].mean()
     
     # average the loss over all batches
     batchStitchingLoss /= batchSize
