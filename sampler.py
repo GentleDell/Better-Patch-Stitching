@@ -87,3 +87,40 @@ class FNSamplerRandUniform(FNSampler2D):
         return torch.cat(
             [torch.empty((B, ns, 1)).uniform_(*ur),
              torch.empty((B, ns, 1)).uniform_(*vr)], dim=2).to(self.device)
+    
+
+class FNSamplerRegularGrid(FNSampler2D):
+    """ Regular 2D grid points generator. --zhantao
+
+    Args:
+        u_range (tuple): Range of u-axis, (u_min, u_max).
+        v_range (tuple): Range of v-axis, (v_min, v_max).
+        num_samples (int): # samples.
+        gpu (bool): Whether to use gpu.
+    """
+    def __init__(self, u_range, v_range, num_samples, num_patches, gpu=True):
+        super(FNSamplerRegularGrid, self).__init__(u_range, v_range, gpu=gpu)
+        self._num_samples = num_samples
+        self._num_patches = num_patches
+        
+    def forward(self, B, num_samples=None, u_range=None, v_range=None):
+        """
+        Args:
+            B (int): Current batch size.
+
+        Returns:
+            torch.Tensor: Randomly sampled 2D points,
+                shape (B, `num_samples`, 2).
+        """
+        ns = torch.sqrt(torch.tensor((num_samples, self._num_samples)[num_samples is None]/self._num_patches))
+        ur = (u_range, self._u_range)[u_range is None]
+        vr = (v_range, self._v_range)[v_range is None]
+        
+        xs = torch.linspace(ur[0], ur[1], ns.int().item())
+        ys = torch.linspace(vr[0], vr[1], ns.int().item())
+        xg, yg = torch.meshgrid(xs, ys)        
+
+        return torch.cat(
+            [xg.flatten()[:,None],
+             yg.flatten()[:,None]], dim=1)[None,:,:].repeat(B, self._num_patches , 1).to(self.device)
+    

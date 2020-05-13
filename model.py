@@ -18,7 +18,7 @@ import torch.nn as nn
 from helpers import Device
 from encoder import ANEncoderPN
 from decoder import DecoderMultiPatch, DecoderAtlasNet
-from sampler import FNSamplerRandUniform
+from sampler import FNSamplerRandUniform, FNSamplerRegularGrid
 from diff_props import DiffGeomProps
 from estimateSurfaceProps import surfacePropLoss, criterionStitching, normalDifference
 
