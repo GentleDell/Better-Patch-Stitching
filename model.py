@@ -18,9 +18,9 @@ import torch.nn as nn
 from helpers import Device
 from encoder import ANEncoderPN
 from decoder import DecoderMultiPatch, DecoderAtlasNet
-from sampler import FNSamplerRandUniform, FNSamplerRegularGrid
+from sampler import FNSamplerRandUniform
 from diff_props import DiffGeomProps
-from estimateSurfaceProps import surfacePropLoss, criterionStitching, normalDifference
+from estimateSurfaceProps import surfacePropLoss, criterionStitching, normalDifference, criterionStitchingFullPatch
 
 class FoldingNetBase(nn.Module):
     def __init__(self):
@@ -295,10 +295,17 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
             
             # patch stitching loss for comparison
             # zhantao
-            losses_sciso['Err_stitching'] = criterionStitching(self.uv, 
-                                                               self.pc_pred.detach(), 
-                                                               self._num_patches, 
-                                                               marginSize = self._marginSize)
+            # losses_sciso['Err_stitching'] = criterionStitching(self.uv, 
+            #                                                    self.pc_pred.detach(), 
+            #                                                    self._num_patches, 
+            #                                                    marginSize = self._marginSize)
+            
+            print('using full patch stitching errors!')
+            losses_sciso['Err_stitching'] = criterionStitchingFullPatch(
+                self.uv, 
+                self.pc_pred.detach(), 
+                self._num_patches, 
+                marginSize = self._marginSize)
             
             # smoothen surfaces loss to boost the reconstruction 
             # zhantao

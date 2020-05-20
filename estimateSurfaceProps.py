@@ -90,6 +90,7 @@ def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor,
         # This call could be used to verify that the global knn is 
         # constrainted by the angle threshold 
         # visSpecifiedPoints(points[0].detach(), [torch.where(invalidKnnPt[0,769] == 0)[0]])
+        # visNormalDiff(points[0].detach(), predictNormal[0].detach(), predictNormal[0].detach(), 25, visAbs=False)
         
     colCloseIndice = distanceMatrix.topk(k, dim = 1, largest = False)[1].permute(0,2,1)
     kNearestPoints = points[:, colCloseIndice, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
@@ -514,19 +515,27 @@ def criterionStitching(uvspace: Tensor, points: Tensor, numPatch: int,
     batchStitchingDist = []
     batchStitchingIndex= []
     for batch in range(batchSize):
+        # Since the pytorch.argsort is not stable, it would permulate equal 
+        # elements randomly, which could leads to unexpected results. So, we 
+        # made the trick here adding acsending small number to the indices.
+        
         # points at the left margin, xxPatch is to distinguish patches and 
         # margins, for possible processing.
         leftPoints = points[batch, leftMargin[batch,:], :]
-        leftPatch  = torch.where(leftMargin[batch,:])[0]//patchSize + 0.1
+        leftPatch  = torch.where(leftMargin[batch,:])[0]//patchSize \
+                     + 0.1 + torch.linspace(0, 0.01, steps=leftPoints.shape[0]).to(leftMargin.device)
         # points at the top margin
         topPoints  = points[batch, topMargin[batch,:], :]
-        topPatch   = torch.where(topMargin[batch,:])[0]//patchSize + 0.2
+        topPatch   = torch.where(topMargin[batch,:])[0]//patchSize  \
+                     + 0.2 + torch.linspace(0, 0.01, steps=topPoints.shape[0]).to(topPoints.device)
         # points at the right margin
         rightPoints = points[batch, rightMargin[batch,:], :]
-        rightPatch  = torch.where(rightMargin[batch,:])[0]//patchSize + 0.3
+        rightPatch  = torch.where(rightMargin[batch,:])[0]//patchSize \
+                     + 0.3 + torch.linspace(0, 0.01, steps=rightPoints.shape[0]).to(rightPoints.device)
         # points at the bottom margin
         bottPoints = points[batch, bottMargin[batch,:], :]
-        bottPatch  = torch.where(bottMargin[batch,:])[0]//patchSize + 0.4
+        bottPatch  = torch.where(bottMargin[batch,:])[0]//patchSize \
+                     + 0.4 + torch.linspace(0, 0.01, steps=bottPoints.shape[0]).to(bottPoints.device)
         
         boundaryPoints = torch.cat((leftPoints, topPoints, rightPoints, bottPoints), dim = 0)
         boundaryIndice = torch.cat((leftPatch, topPatch, rightPatch, bottPatch), dim = 0)
@@ -537,7 +546,9 @@ def criterionStitching(uvspace: Tensor, points: Tensor, numPatch: int,
         boundaryPoints = boundaryPoints[patchOrder, :]
         boundaryIndice = boundaryIndice[patchOrder]
         
-        # visSpecifiedPoints(points[batch].detach().to('cpu'), [torch.where(boundaryIndice < 1)[0].to('cpu')])
+        # margin = torch.zeros_like(points[batch,:,0])
+        # margin[leftMargin[batch]] = 1
+        # visSpecifiedPoints(points[batch].detach().to('cpu'), [torch.where(margin >= 1)[0].to('cpu')])
         
         # compute distances between points in margins
         distanceMatrix = (boundaryPoints[None, :, :] - boundaryPoints[:, None, :]).norm(dim=2)
@@ -545,10 +556,21 @@ def criterionStitching(uvspace: Tensor, points: Tensor, numPatch: int,
         # remove distances between point from the same patch
         for ind in range(numPatch):
             subMatrix = torch.where((boundaryIndice < ind + 1) * (boundaryIndice > ind))[0]
-            distanceMatrix[subMatrix.min():subMatrix.max(), subMatrix.min():subMatrix.max()] = _USRINF
+            if subMatrix.max()-subMatrix.min()+1 < subMatrix.size(0):
+                print("Error here!")
+            distanceMatrix[subMatrix.min():subMatrix.max()+1, subMatrix.min():subMatrix.max()+1] = _USRINF
         
         # keep the smallest distance 
         smallestDistance = torch.min(distanceMatrix, dim=1)[0]
+        
+        # vis distance 
+        # visDistance = torch.zeros_like(points[batch][:,0])
+        # visDistance[leftMargin[batch]+topMargin[batch]+rightMargin[batch]+bottMargin[batch]]=smallestDistance 
+        # visDistance = visDistance[:,None].repeat(1,3)
+        # visSpecifiedPoints(points[batch].detach().to('cpu'), 
+        #                     [torch.where(visDistance[:,0] > 0)[0].to('cpu')],
+        #                     [(visDistance[torch.where(visDistance[:,0] > 0)[0], :]/visDistance.max()).to('cpu')],
+        #                     showPatches = True)
         
         # keep the distance and indices for future use
         batchStitchingDist.append(smallestDistance)
@@ -560,10 +582,136 @@ def criterionStitching(uvspace: Tensor, points: Tensor, numPatch: int,
         # as the uvspace is uniform distribution, leading to empty margin, 
         # here we have to use mean() to avoid errors. 
         for ind in range(numPatch):
-            marginLoss = Tensor([smallestDistance[boundaryIndice == ind + 0.1].mean(),
-                                 smallestDistance[boundaryIndice == ind + 0.2].mean(),
-                                 smallestDistance[boundaryIndice == ind + 0.3].mean(),
-                                 smallestDistance[boundaryIndice == ind + 0.4].mean()])
+            marginLoss = Tensor([smallestDistance[(boundaryIndice < ind + 0.12)*(boundaryIndice >= ind + 0.1)].mean(),
+                                 smallestDistance[(boundaryIndice < ind + 0.22)*(boundaryIndice >= ind + 0.2)].mean(),
+                                 smallestDistance[(boundaryIndice < ind + 0.32)*(boundaryIndice >= ind + 0.3)].mean(),
+                                 smallestDistance[(boundaryIndice < ind + 0.42)*(boundaryIndice >= ind + 0.4)].mean()])
+                    
+            batchStitchingLoss += marginLoss[~torch.isnan(marginLoss)].mean()
+    
+    # average the loss over all batches
+    batchStitchingLoss /= batchSize
+    
+    return batchStitchingLoss
+
+
+def criterionStitchingFullPatch(uvspace: Tensor, points: Tensor, numPatch: int, 
+                                marginSize: float = 0.1):
+    '''
+    It computes the stitching criterion to evaluate the patch stitching 
+    quality. Difference from the criterionStitching(), this function use full 
+    patches to compute the stitching errors.
+
+    Parameters
+    ----------
+    uvspace : Tensor
+        The sample 2D points in the uv space, [B, N, 2].
+    points : Tensor
+        The predicted point cloud, [B, N, 3].
+    numPatch : int
+        The number of patches.
+    marginSize : float, optional
+        The size of margines. The default is 0.1.
+
+    Returns
+    -------
+    Tensor
+        stitching quality.
+
+    '''
+    
+    batchSize  = points.shape[0]
+    patchSize  = points.shape[1]/numPatch
+    marginSize = min(max(marginSize, 0.01), 0.5)
+    
+    # get all points at different margins according to the uv points
+    leftMargin = (uvspace[:,:,0] < marginSize) * (uvspace[:,:,1] < 1 - marginSize)
+    topMargin  = (uvspace[:,:,0] < 1 - marginSize) * (uvspace[:,:,1] > 1 -  marginSize)
+    rightMargin= (uvspace[:,:,0] > 1 - marginSize) * (uvspace[:,:,1] > marginSize)
+    bottMargin = (uvspace[:,:,0] > marginSize) * (uvspace[:,:,1] < marginSize)
+    
+    # to visualize the margin points and the full point cloud
+    # visSpecifiedPoints(points[0].detach().to('cpu'),
+    #                     [torch.where(leftMargin[0])[0].to('cpu'),
+    #                     torch.where(topMargin[0])[0].to('cpu'),
+    #                     torch.where(rightMargin[0])[0].to('cpu'),
+    #                     torch.where(bottMargin[0])[0].to('cpu')])
+    
+    batchStitchingLoss = torch.tensor([0.])
+    batchStitchingDist = []
+    batchStitchingIndex= []
+    for batch in range(batchSize):
+        # Since the pytorch.argsort is not stable, it would permulate equal 
+        # elements randomly, which could leads to unexpected results. So, we 
+        # made the trick here adding acsending small number to the indices.
+        
+        # points at the left margin, xxPatch is to distinguish patches and 
+        # margins, for possible processing.
+        leftPoints = points[batch, leftMargin[batch,:], :]
+        leftPatch  = torch.where(leftMargin[batch,:])[0]//patchSize \
+                     + 0.1 + torch.linspace(0, 0.01, steps=leftPoints.shape[0]).to(leftMargin.device)
+        # points at the top margin
+        topPoints  = points[batch, topMargin[batch,:], :]
+        topPatch   = torch.where(topMargin[batch,:])[0]//patchSize  \
+                     + 0.2 + torch.linspace(0, 0.01, steps=topPoints.shape[0]).to(topPoints.device)
+        # points at the right margin
+        rightPoints = points[batch, rightMargin[batch,:], :]
+        rightPatch  = torch.where(rightMargin[batch,:])[0]//patchSize \
+                     + 0.3 + torch.linspace(0, 0.01, steps=rightPoints.shape[0]).to(rightPoints.device)
+        # points at the bottom margin
+        bottPoints = points[batch, bottMargin[batch,:], :]
+        bottPatch  = torch.where(bottMargin[batch,:])[0]//patchSize \
+                     + 0.4 + torch.linspace(0, 0.01, steps=bottPoints.shape[0]).to(bottPoints.device)
+        
+        boundaryPoints = torch.cat((leftPoints, topPoints, rightPoints, bottPoints), dim = 0)
+        boundaryIndice = torch.cat((leftPatch, topPatch, rightPatch, bottPatch), dim = 0)
+        
+        # sort the points and indices by patches and by margins
+        # 0.1 = left, 0.2 = top, 0.3 = right, 0.4 = bottom
+        patchOrder = torch.argsort(boundaryIndice)
+        boundaryPoints = boundaryPoints[patchOrder, :]
+        boundaryIndice = boundaryIndice[patchOrder]
+        
+        # margin = torch.zeros_like(points[batch,:,0])
+        # margin[leftMargin[batch]] = 1
+        # visSpecifiedPoints(points[batch].detach().to('cpu'), [torch.where(margin >= 1)[0].to('cpu')])
+        
+        # compute distances between points in margins
+        distanceMatrix = (boundaryPoints[:, None, :] - points[batch][None, :, :]).norm(dim=2)
+        
+        # remove distances between point from the same patch
+        for ind in range(numPatch):
+            subMatrix = torch.where((boundaryIndice < ind + 1) * (boundaryIndice > ind))[0]
+            if subMatrix.max()-subMatrix.min()+1 < subMatrix.size(0):
+                print("Error here!")
+            distanceMatrix[subMatrix.min():subMatrix.max()+1, ind*int(patchSize):(ind+1)*int(patchSize)] = _USRINF
+        
+        # keep the smallest distance 
+        smallestDistance = torch.min(distanceMatrix, dim=1)[0]
+        
+        # vis distance 
+        # visDistance = torch.zeros_like(points[batch][:,0])
+        # visDistance[leftMargin[batch]+topMargin[batch]+rightMargin[batch]+bottMargin[batch]]=smallestDistance 
+        # visDistance = visDistance[:,None].repeat(1,3)
+        # visSpecifiedPoints(points[batch].detach().to('cpu'), 
+        #                     [torch.where(visDistance[:,0] > 0)[0].to('cpu')],
+        #                     [(visDistance[torch.where(visDistance[:,0] > 0)[0], :]/visDistance.max()).to('cpu')],
+        #                     showPatches = True)
+        
+        # keep the distance and indices for future use
+        batchStitchingDist.append(smallestDistance)
+        batchStitchingIndex.append(boundaryIndice)
+        
+        # compute stitching loss for each patch
+        # for each margin of the patch, compute the average smallest.
+        # Ideally, the sum of the 4 averages is patch stitching loss. However,
+        # as the uvspace is uniform distribution, leading to empty margin, 
+        # here we have to use mean() to avoid errors. 
+        for ind in range(numPatch):
+            marginLoss = Tensor([smallestDistance[(boundaryIndice < ind + 0.12)*(boundaryIndice >= ind + 0.1)].mean(),
+                                 smallestDistance[(boundaryIndice < ind + 0.22)*(boundaryIndice >= ind + 0.2)].mean(),
+                                 smallestDistance[(boundaryIndice < ind + 0.32)*(boundaryIndice >= ind + 0.3)].mean(),
+                                 smallestDistance[(boundaryIndice < ind + 0.42)*(boundaryIndice >= ind + 0.4)].mean()])
                     
             batchStitchingLoss += marginLoss[~torch.isnan(marginLoss)].mean()
     
@@ -618,10 +766,15 @@ def normalDifference(gtPoints: Tensor, gtNormals: Tensor,
     srcIdealNormal= gtNormals[:, srcNearestInd, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
     
     # use direction insensitive criterion
-    normalDiffAvg = (1 - (srcIdealNormal[:,:,None,:] @ globalNormals[:,:,:,None]).squeeze().pow(2)).mean()
+    normalDiffVec = (1 - (srcIdealNormal[:,:,None,:] @ globalNormals[:,:,:,None]).squeeze().pow(2))
+    normalDiffAvg = normalDiffVec.mean()
     
-    # visualize the normal difference
+    # visualize the normal, and the normal difference
     # visNormalDiff(predPoints[0].to('cpu'), srcIdealNormal[0].to('cpu'), globalNormals[0].to('cpu'), 25)
+    # visNormalDiff(predPoints[0].to('cpu'), 
+    #               normalDiffVec[:,:,None].repeat(1,1,3)[0].to('cpu'), 
+    #               globalNormals[0].to('cpu'), 
+    #               25)
     
     return normalDiffAvg
 
