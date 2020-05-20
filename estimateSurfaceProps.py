@@ -690,14 +690,21 @@ def criterionStitchingFullPatch(uvspace: Tensor, points: Tensor, numPatch: int,
         smallestDistance = torch.min(distanceMatrix, dim=1)[0]
         
         # vis distance 
+        # tempDistance= torch.zeros_like(smallestDistance)
         # visDistance = torch.zeros_like(points[batch][:,0])
-        # visDistance[leftMargin[batch]+topMargin[batch]+rightMargin[batch]+bottMargin[batch]]=smallestDistance 
+        # tempDistance[patchOrder] = smallestDistance
+        # marginPnum  = tempDistance.shape[0]//4
+        
+        # visDistance[leftMargin[batch]] = tempDistance[:marginPnum]
+        # visDistance[topMargin[batch]]  = tempDistance[marginPnum:2*marginPnum]
+        # visDistance[rightMargin[batch]]= tempDistance[2*marginPnum:3*marginPnum]
+        # visDistance[bottMargin[batch]] = tempDistance[3*marginPnum:]
         # visDistance = visDistance[:,None].repeat(1,3)
         # visSpecifiedPoints(points[batch].detach().to('cpu'), 
         #                     [torch.where(visDistance[:,0] > 0)[0].to('cpu')],
         #                     [(visDistance[torch.where(visDistance[:,0] > 0)[0], :]/visDistance.max()).to('cpu')],
         #                     showPatches = True)
-        
+     
         # keep the distance and indices for future use
         batchStitchingDist.append(smallestDistance)
         batchStitchingIndex.append(boundaryIndice)
