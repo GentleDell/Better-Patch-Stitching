@@ -790,7 +790,8 @@ class surfacePropLoss(nn.Module):
     
     def __init__(self, numPatches : int, kNeighbors : int, normals : bool = True,
                  normalLossAbs : bool = True, surfaceVariances : bool = False,
-                 weight : list = [1,1], angleThreshold : float = 3.14159):
+                 weight : list = [1,1], angleThreshold : float = 3.14159,
+                 GlobalandPatch: bool = False):
         
         nn.Module.__init__(self)
         self._numPatches = numPatches
@@ -804,6 +805,8 @@ class surfacePropLoss(nn.Module):
            
         self._normalLossAbs = normalLossAbs
         self._angleThreshold= angleThreshold
+        
+        self._GlobalandPatch= GlobalandPatch
 
         
     def forward(self, pointCloud : Tensor, gtPoints : Tensor = None, gtNormal : Tensor = None):
@@ -813,7 +816,13 @@ class surfacePropLoss(nn.Module):
         
         if self._useNormals:
             normalVecGlobal  = estimateNormal(kNearestNeighbor)
-            normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors, self._angleThreshold)
+            
+            if self._GlobalandPatch:
+                # reject invalid KNN points for patches
+                normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors, gtPoints, gtNormal, self._angleThreshold)
+            else:
+                # do not reject invalid KNN for patches
+                normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors)
             
             if self._normalLossAbs: 
                 # use the absolute value difference between normal vectors
@@ -824,9 +833,16 @@ class surfacePropLoss(nn.Module):
             
             surfacePropDiff.append(normalVectorLoss * self._normalWeight)
         
+        
         if self._useSurfVar:
             SurfVarGlobal    = estimateSurfVariance(kNearestNeighbor)
-            SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors, self._angleThreshold)
+            
+            if self._GlobalandPatch:
+                # reject invalid KNN points for patches
+                SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors, gtPoints, gtNormal, self._angleThreshold)
+            else:
+                # do not reject invalid KNN for patches
+                SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors)
             
             SurfVarianceLoss = (SurfVarPatchwise - SurfVarGlobal).pow(2).mean()[None]
         

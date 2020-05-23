@@ -42,12 +42,14 @@ alphas_sciso:
   total_area_mult: 1.
 
 loss_smooth_surfaces: True
+surface_normal: True
 surface_varinace: False
 number_k_neighbor: 5
 alpha_surfProp: 0.001
 
 angle_threshold: 120  # degree
-reject_predNormal: False
+reject_GlobalandPatch : False
+reject_byPredNormal: False
 margin_size: 0.1
 
 

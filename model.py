@@ -178,8 +178,9 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
     def __init__(self, M, num_patches, alpha_chd=1., loss_scaled_isometry=False,
                  loss_smooth_surfaces=False, alpha_scaled_isometry=0.,      # zhantao
                  number_k_neighbor = 8, alphas_sciso=None, alpha_surfProp = 0, 
-                 surfaceVariance = False, angleThreshold = 3.1415926,
-                 rejPredictNormal= False, marginSize = 0.1, gpu=True):
+                 surfaceNormal=False, surfaceVariance = False, angleThreshold = 3.1415926,
+                 rejPredictNormal= False, GlobalandPatch = False, 
+                 marginSize = 0.1, gpu=True):
         
         super(MultipatchDecoder, self).__init__(
             fff=loss_scaled_isometry, alpha_chd=alpha_chd, gpu=gpu)
@@ -192,9 +193,11 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         self._alpha_scaled_isometry = alpha_scaled_isometry
         self._number_k_neighbor = number_k_neighbor          # zhantao
         self._alpha_surfProp    = alpha_surfProp             # zhantao
+        self._useSurfaceNormal  = surfaceNormal              # zhantao
         self._useSurfaceVariance= surfaceVariance            # zhantao
         self._rejAngleThreshold = angleThreshold             # zhantao 
         self._rejectByPredNormal= rejPredictNormal           # zhantao
+        self._rejectGlobandPatch= GlobalandPatch             # zhantao
         self._marginSize = marginSize                        # zhantao
 
         self._loss_sciso = torch.tensor(0.).to(self.device)
@@ -311,9 +314,11 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
             # zhantao
             if self._loss_smooth_surfaces:        
                 surfProp = surfacePropLoss(self._num_patches, self._number_k_neighbor, 
-                                           normals = True, normalLossAbs = False, 
+                                           normals = self._useSurfaceNormal, 
+                                           normalLossAbs = False, 
                                            surfaceVariances = self._useSurfaceVariance, 
-                                           angleThreshold = self._rejAngleThreshold)
+                                           angleThreshold = self._rejAngleThreshold,
+                                           GlobalandPatch = self._rejectGlobandPatch)
                 
                 # convert to cpu to accelerate the loss computation 
                 if torch.get_num_threads() > 15:
@@ -370,9 +375,11 @@ class AtlasNetReimpl(MultipatchDecoder):
                  alpha_scaled_isometry = 0., 
                  alphas_sciso = None, 
                  alpha_scaled_surfProp = 0.,          # zhantao
+                 useSurfaceNormal   = False,          # zhantao
                  useSurfaceVariance = False,          # zhantao
                  angleThreshold     = 3.14159,        # zhantao
                  rejByPredictNormal = False,          # zhantao
+                 rejGlobalandPatch  = False,          # zhantao 
                  marginSize         = 0.1,            # zhantao
                  gpu = True,
                  **kwargs):
@@ -385,9 +392,11 @@ class AtlasNetReimpl(MultipatchDecoder):
             number_k_neighbor = numNeighbor,                 # zhantao
             alphas_sciso = alphas_sciso, 
             alpha_surfProp  = alpha_scaled_surfProp,         # zhantao
+            surfaceNormal   = useSurfaceNormal,              # zhantao 
             surfaceVariance = useSurfaceVariance,            # zhantao
             angleThreshold  = angleThreshold,                # zhantao
             rejPredictNormal= rejByPredictNormal,            # zhantao
+            GlobalandPatch  = rejGlobalandPatch,        # zhantao 
             marginSize      = marginSize,
             gpu=gpu)
         Device.__init__(self, gpu)
