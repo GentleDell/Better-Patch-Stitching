@@ -43,10 +43,10 @@ alphas_sciso:
 
 loss_smooth_surfaces: True
 surface_varinace: False
-number_k_neighbor: 8
+number_k_neighbor: 5
 alpha_surfProp: 0.001
 
-angle_threshold: 60  # degree
+angle_threshold: 120  # degree
 reject_predNormal: False
 margin_size: 0.1
 

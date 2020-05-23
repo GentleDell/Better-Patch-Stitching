@@ -239,7 +239,8 @@ def visNSurface(parameters : Tensor, points : Tensor):
     plt.show()
 
 
-def visSpecifiedPoints(points: Tensor, indices: list, colors: list = None):
+def visSpecifiedPoints(points: Tensor, indices: list, colors: list = None, 
+                       showPatches: bool = False, numPatches: int = 25):
     '''
     This function visualizes a knn group of the given points, which is 
     specified by the knnIndices. This function does not support batch.
@@ -251,10 +252,16 @@ def visSpecifiedPoints(points: Tensor, indices: list, colors: list = None):
     points : Tensor
         Point cloud to be visulized, [N,3].
     indices : list
-        A list of indices of points of the given point cloud to visualize.
+        A list of indices of points of the given point cloud to visualize [[k]].
     colors : list
-        A list of colors corresponding to the list of indices. The default is 
-        None.
+        A list of colors corresponding to the list of indices, [[k,3]]. 
+        The default is None.
+    showPatches : bool
+        Whether show patches with different colors together with specific 
+        points. The default is False.
+    numPatches : int
+        The number of patches, given together with showPatches. The default is
+        25.
         
     Returns
     -------
@@ -268,9 +275,18 @@ def visSpecifiedPoints(points: Tensor, indices: list, colors: list = None):
            colors.append( mcolors.to_rgb(mcolors.CSS4_COLORS[clr_names[cnt]]) )
     
     # create color tensor for visualization 
-    viscolor   = torch.zeros_like(points)
+    if showPatches:
+        patchColors = generateColors(numPatches, points.shape[0])
+        viscolor = torch.from_numpy(patchColors).float()
+    else:
+        viscolor = torch.zeros_like(points)
+    
+    # draw margins 
     for cnt, ind in enumerate(indices):
-        viscolor[ind,:] = Tensor(colors[cnt])
+        if torch.is_tensor(colors[cnt]):
+            viscolor[ind,:] = colors[cnt]
+        else:
+            viscolor[ind,:] = Tensor(colors[cnt])
     
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector( points )    
