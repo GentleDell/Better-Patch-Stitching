@@ -58,9 +58,11 @@ def compareOurs(path_conf: str, path_weight: str):
         alpha_scaled_isometry = conf['alpha_scaled_isometry'],
         alphas_sciso     = conf['alphas_sciso'], 
         alpha_scaled_surfProp = conf['alpha_surfProp'],            # zhantao
+        useSurfaceNormal   = conf['surface_normal'],               # zhantao
         useSurfaceVariance = conf['surface_varinace'],             # zhantao
         angleThreshold     = conf['angle_threshold']/180*np.pi,    # zhantao
-        rejByPredictNormal = conf['reject_predNormal'],            # zhantao
+        rejGlobalandPatch  = conf["reject_GlobalandPatch"],        # zhantao
+        rejByPredictNormal = conf['reject_byPredNormal'],          # zhantao
         marginSize       = conf['margin_size'],                    # zhantao
         gpu=gpu)
 
@@ -134,10 +136,13 @@ def inferenceAll(conf_path: str, weightFolder : str):
     '''
     for folder in sorted(glob.glob( pjn(weightFolder, '*'))):
         weightpath =  glob.glob( pjn(folder, '*.tar') )[0]
-                    
+        
+        if conf_path is None:
+            conf_path = glob.glob( pjn(folder, 'config.yaml') )[0]
+            
         compareOurs(conf_path, weightpath)
 
 
-path_conf = 'config.yaml'
+path_conf = None
 
 inferenceAll(path_conf, '../../syn_server/data/cellphone/Knn_gtnormal_bothGlobalandPatchwise/')

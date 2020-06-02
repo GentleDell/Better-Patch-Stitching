@@ -326,16 +326,16 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
                 
                 # if using the predicted normal to reject neighboring points
                 if self._rejectByPredNormal:
-                    surfacePropDiff, normalVecGlobal = surfProp(self.pc_pred.to("cpu"), 
+                    surfacePropDiff, normalVecGlobal = surfProp(self.pc_pred, 
                                                                 None, 
-                                                                self.geom_props['normals'].to("cpu"))
+                                                                self.geom_props['normals'])
                     losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)    
                     
                 # if using ground truth reject neighboring points
                 else:
-                    surfacePropDiff, normalVecGlobal = surfProp(self.pc_pred.to("cpu"), 
-                                                                pc_gt.to("cpu"), 
-                                                                normals_gt.to("cpu"))
+                    surfacePropDiff, normalVecGlobal = surfProp(self.pc_pred, 
+                                                                pc_gt, 
+                                                                normals_gt)
                     losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)
                 
                 # normal difference loss for comparison

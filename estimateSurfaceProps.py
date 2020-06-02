@@ -82,6 +82,7 @@ def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor,
     # the gtNormal as the predicted normal vector, so here we directly use 
     # the normal to reject invalid neighbors.
     elif gtNormal is not None and gtPoints is None:
+        raise ValueError("using pridicted normal as constraint is incorrect! No support anymore!") 
         predictNormal = gtNormal/gtNormal.norm(dim=2)[:,:,None]
         angleBtnormal = predictNormal @ predictNormal.permute(0,2,1) 
         invalidKnnPt  = angleBtnormal <= torch.tensor(angleThreshold).cos() 
@@ -124,11 +125,11 @@ def estimateNormal( kNearestPoints : Tensor ) -> Tensor:
     covarianc = kNearestPoints.permute(0, 1, 3, 2) @ kNearestPoints
      
     # eigen decompose each point set to get the eigen vector
-    eigVector = covarianc.symeig( eigenvectors = True )[1][:,:,:,0]
+    eigVector = covarianc.to("cpu").symeig( eigenvectors = True )[1][:,:,:,0]
     
     assert(eigVector.shape == torch.Size([kNearestPoints.shape[0], kNearestPoints.shape[1], 3]))
     
-    return eigVector
+    return eigVector.to(kNearestPoints.device)
     
 
 def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int, 
@@ -218,14 +219,14 @@ def estimateSurfVariance( kNearestPoints : Tensor ) -> Tensor:
     covariance = kNearestPoints.permute(0, 1, 3, 2) @ kNearestPoints
     
     # eigen decompose each point set to get the eigen vector
-    eigValues  = covariance.symeig( eigenvectors = True )[0]
+    eigValues  = covariance.to("cpu").symeig( eigenvectors = True )[0]
     
     # surface variances
     surfaceVar = eigValues[:,:,0]/eigValues.sum(dim=2)
     
     assert(surfaceVar.shape == kNearestPoints.shape[:2])
     
-    return surfaceVar
+    return surfaceVar.to(kNearestPoints.device)
 
 
 def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int,
