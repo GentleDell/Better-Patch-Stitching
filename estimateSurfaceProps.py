@@ -716,10 +716,10 @@ def criterionStitchingFullPatch(uvspace: Tensor, points: Tensor, numPatch: int,
         # as the uvspace is uniform distribution, leading to empty margin, 
         # here we have to use mean() to avoid errors. 
         for ind in range(numPatch):
-            marginLoss = Tensor([smallestDistance[(boundaryIndice < ind + 0.12)*(boundaryIndice >= ind + 0.1)].mean(),
-                                 smallestDistance[(boundaryIndice < ind + 0.22)*(boundaryIndice >= ind + 0.2)].mean(),
-                                 smallestDistance[(boundaryIndice < ind + 0.32)*(boundaryIndice >= ind + 0.3)].mean(),
-                                 smallestDistance[(boundaryIndice < ind + 0.42)*(boundaryIndice >= ind + 0.4)].mean()])
+            marginLoss = torch.cat([smallestDistance[(boundaryIndice < ind + 0.12)*(boundaryIndice >= ind + 0.1)].mean()[None],
+                                    smallestDistance[(boundaryIndice < ind + 0.22)*(boundaryIndice >= ind + 0.2)].mean()[None],
+                                    smallestDistance[(boundaryIndice < ind + 0.32)*(boundaryIndice >= ind + 0.3)].mean()[None],
+                                    smallestDistance[(boundaryIndice < ind + 0.42)*(boundaryIndice >= ind + 0.4)].mean()[None]])
                     
             batchStitchingLoss += marginLoss[~torch.isnan(marginLoss)].mean()
     
@@ -808,7 +808,10 @@ class surfacePropLoss(nn.Module):
         self._angleThreshold= angleThreshold
         
         self._GlobalandPatch= GlobalandPatch
-
+        
+        print("Surface loss is enabled: \n\tnumNeigbor = %d,\tuseNormals = %i,\tuseSurfVar = %i,\tangleThres = %f,\tGlob&Patch = %i,\t normalWeig = %f,\t surfWeight = %f"
+              %(self._kNeighbors , self._useNormals, self._useSurfVar, self._angleThreshold, self._GlobalandPatch, self._normalWeight, self._surfVarWeight))
+        
         
     def forward(self, pointCloud : Tensor, gtPoints : Tensor = None, gtNormal : Tensor = None):
         

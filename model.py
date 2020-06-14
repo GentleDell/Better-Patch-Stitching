@@ -175,12 +175,22 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         alphas_sciso (dict): Hyperparams. of scaled isometry loss.
     """
 
-    def __init__(self, M, num_patches, alpha_chd=1., loss_scaled_isometry=False,
-                 loss_smooth_surfaces=False, alpha_scaled_isometry=0.,      # zhantao
-                 number_k_neighbor = 8, alphas_sciso=None, alpha_surfProp = 0, 
-                 surfaceNormal=False, surfaceVariance = False, angleThreshold = 3.1415926,
-                 rejPredictNormal= False, GlobalandPatch = False, 
-                 marginSize = 0.1, gpu=True):
+    def __init__(self, M, num_patches, alpha_chd=1., 
+                 loss_scaled_isometry  = False,
+                 loss_smooth_surfaces = False, 
+                 loss_patch_stitching = False, 
+                 alpha_scaled_isometry= 0.,
+                 number_k_neighbor = 8,
+                 alphas_sciso    = None, 
+                 alpha_surfProp  = 0, 
+                 alpha_stitching = 0, 
+                 surfaceNormal   = False, 
+                 surfaceVariance = False, 
+                 angleThreshold  = 3.1415926,
+                 rejPredictNormal= False, 
+                 GlobalandPatch  = False, 
+                 marginSize = 0.1,
+                 gpu = True):
         
         super(MultipatchDecoder, self).__init__(
             fff=loss_scaled_isometry, alpha_chd=alpha_chd, gpu=gpu)
@@ -190,9 +200,11 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         self._M = self._spp * num_patches
         self._loss_scaled_isometry = loss_scaled_isometry
         self._loss_smooth_surfaces = loss_smooth_surfaces    # zhantao
+        self._loss_patch_stitching = loss_patch_stitching    # zhantao
         self._alpha_scaled_isometry = alpha_scaled_isometry
         self._number_k_neighbor = number_k_neighbor          # zhantao
         self._alpha_surfProp    = alpha_surfProp             # zhantao
+        self._alpha_stitching   = alpha_stitching            # zhantao
         self._useSurfaceNormal  = surfaceNormal              # zhantao
         self._useSurfaceVariance= surfaceVariance            # zhantao
         self._rejAngleThreshold = angleThreshold             # zhantao 
@@ -205,7 +217,28 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         self._one = torch.tensor(1.).to(self.device)
         self._mone = torch.tensor(-1.).to(self.device)
         self._eps = torch.tensor(1e-20)
-
+        
+        
+        # zhantao, enable surfave loss
+        if self._loss_smooth_surfaces:        
+            self.surfProp = surfacePropLoss(self._num_patches, self._number_k_neighbor, 
+                                       normals = self._useSurfaceNormal, 
+                                       normalLossAbs = False, 
+                                       surfaceVariances = self._useSurfaceVariance, 
+                                       angleThreshold = self._rejAngleThreshold,
+                                       GlobalandPatch = self._rejectGlobandPatch)
+            
+            print("\talpha_surfProp = %.1e, alpha_stitching = %.1e"
+                  %(self._alpha_surfProp, self._alpha_stitching))
+        
+        # zhantao, show surfave loss
+        if self._loss_patch_stitching:
+            print("\tpatch stitching loss is enabled. The marginSize is = %.1e"
+                  %(self._marginSize))
+        else:
+            print("\tpatch stitching loss is disabled.")
+                  
+            
         if loss_scaled_isometry:
             self._alphas_si = {k: torch.tensor(float(v)).to(self.device)
                                for k, v in alphas_sciso.items()}
@@ -296,44 +329,39 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
             
             losses_sciso = self.loss_clps_olap(areas=areas_gt)
             
-            # patch stitching loss for comparison
+            # stitching loss
             # zhantao
-            # losses_sciso['Err_stitching'] = criterionStitching(self.uv, 
-            #                                                    self.pc_pred.detach(), 
-            #                                                    self._num_patches, 
-            #                                                    marginSize = self._marginSize)
-            
-            print('using full patch stitching errors!')
-            losses_sciso['Err_stitching'] = criterionStitchingFullPatch(
-                self.uv, 
-                self.pc_pred.detach(), 
-                self._num_patches, 
-                marginSize = self._marginSize)
+            if self._loss_patch_stitching:
+                losses_sciso['Err_stitching'] = criterionStitchingFullPatch(
+                    self.uv, 
+                    self.pc_pred, 
+                    self._num_patches, 
+                    marginSize = self._marginSize)
+            else:
+                losses_sciso['Err_stitching'] = criterionStitchingFullPatch(
+                    self.uv, 
+                    self.pc_pred.detach(), 
+                    self._num_patches, 
+                    marginSize = self._marginSize)
             
             # smoothen surfaces loss to boost the reconstruction 
             # zhantao
             if self._loss_smooth_surfaces:        
-                surfProp = surfacePropLoss(self._num_patches, self._number_k_neighbor, 
-                                           normals = self._useSurfaceNormal, 
-                                           normalLossAbs = False, 
-                                           surfaceVariances = self._useSurfaceVariance, 
-                                           angleThreshold = self._rejAngleThreshold,
-                                           GlobalandPatch = self._rejectGlobandPatch)
-                
+                                
                 # convert to cpu to accelerate the loss computation 
                 if torch.get_num_threads() > 15:
                     torch.set_num_threads(15)
                 
                 # if using the predicted normal to reject neighboring points
                 if self._rejectByPredNormal:
-                    surfacePropDiff, normalVecGlobal = surfProp(self.pc_pred, 
+                    surfacePropDiff, normalVecGlobal = self.surfProp(self.pc_pred, 
                                                                 None, 
                                                                 self.geom_props['normals'])
                     losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)    
                     
                 # if using ground truth reject neighboring points
                 else:
-                    surfacePropDiff, normalVecGlobal = surfProp(self.pc_pred, 
+                    surfacePropDiff, normalVecGlobal = self.surfProp(self.pc_pred, 
                                                                 pc_gt, 
                                                                 normals_gt)
                     losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)
@@ -349,6 +377,11 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         # Total loss.
         losses['loss_tot'] += self._alpha_scaled_isometry * loss_sciso
         
+        # add patch stitching loss to boost the reconstruction 
+        # zhantao
+        if self._loss_patch_stitching:
+            losses['loss_tot'] += self._alpha_stitching * losses_sciso['Err_stitching']
+            
         # add smoothen surfaces loss to boost the reconstruction 
         # zhantao
         if self._loss_smooth_surfaces:        
@@ -371,10 +404,12 @@ class AtlasNetReimpl(MultipatchDecoder):
                  dec_use_tanh=True, dec_batch_norm=True,
                  loss_scaled_isometry = False,
                  loss_smooth_surfaces = False,        # zhantao
+                 loss_patch_stitching = False,        # zhantap
                  numNeighbor = 8,                     # zhantao
                  alpha_scaled_isometry = 0., 
                  alphas_sciso = None, 
                  alpha_scaled_surfProp = 0.,          # zhantao
+                 alpha_stitching    = 0.,             # zhantao
                  useSurfaceNormal   = False,          # zhantao
                  useSurfaceVariance = False,          # zhantao
                  angleThreshold     = 3.14159,        # zhantao
@@ -388,10 +423,12 @@ class AtlasNetReimpl(MultipatchDecoder):
             self, M, num_patches, 
             loss_scaled_isometry  = loss_scaled_isometry,
             loss_smooth_surfaces  = loss_smooth_surfaces,    # zhantao
+            loss_patch_stitching  = loss_patch_stitching,    # zhantao 
             alpha_scaled_isometry = alpha_scaled_isometry,
             number_k_neighbor = numNeighbor,                 # zhantao
             alphas_sciso = alphas_sciso, 
             alpha_surfProp  = alpha_scaled_surfProp,         # zhantao
+            alpha_stitching = alpha_stitching,               # zhantao
             surfaceNormal   = useSurfaceNormal,              # zhantao 
             surfaceVariance = useSurfaceVariance,            # zhantao
             angleThreshold  = angleThreshold,                # zhantao

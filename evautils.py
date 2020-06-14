@@ -139,6 +139,7 @@ def inferenceAll(conf_path: str, weightFolder : str):
         
         if conf_path is None:
             conf_path = glob.glob( pjn(folder, 'config.yaml') )[0]
+            print(conf_path)
             
         compareOurs(conf_path, weightpath)
 

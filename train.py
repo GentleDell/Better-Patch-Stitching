@@ -65,10 +65,12 @@ model = AtlasNetReimpl(
     dec_batch_norm   = conf['dec_batch_norm'],
     loss_scaled_isometry  = conf['loss_scaled_isometry'],
     loss_smooth_surfaces  = conf['loss_smooth_surfaces'],      # zhantao
+    loss_patch_stitching  = conf['loss_patch_stitching'],      # zhantao
     numNeighbor      = conf['number_k_neighbor'],              # zhantao
     alpha_scaled_isometry = conf['alpha_scaled_isometry'],
     alphas_sciso     = conf['alphas_sciso'], 
     alpha_scaled_surfProp = conf['alpha_surfProp'],            # zhantao
+    alpha_stitching  = conf['alpha_stitching'],                # zhantao
     useSurfaceNormal   = conf['surface_normal'],               # zhantao
     useSurfaceVariance = conf['surface_varinace'],             # zhantao
     angleThreshold     = conf['angle_threshold']/180*np.pi,    # zhantao
@@ -102,7 +104,7 @@ opt = torch.optim.Adam(model.parameters(), lr=conf['lr'])
 # Resume training if required
 if args.resume:
     print("Resuming training")
-    trstate = torch.load(helpers.jn(args.output, 'chkpt_cellphone_ep235.tar'))
+    trstate = torch.load(helpers.jn(args.output, 'chkpt.tar'))
     model.load_state_dict(trstate['weights'])
     opt.load_state_dict(trstate['optimizer'])
 

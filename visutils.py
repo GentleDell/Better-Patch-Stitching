@@ -12,7 +12,7 @@ from numpy import array
 import torch
 from torch import Tensor
 
-import open3d as o3d
+# import open3d as o3d
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 

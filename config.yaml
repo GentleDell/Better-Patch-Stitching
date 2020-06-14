@@ -41,6 +41,9 @@ alphas_sciso:
   total_area: 100
   total_area_mult: 1.
 
+loss_patch_stitching: True
+alpha_stitching: 0.001
+
 loss_smooth_surfaces: True
 surface_normal: True
 surface_varinace: False
