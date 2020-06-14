@@ -638,7 +638,7 @@ def criterionStitchingFullPatch(uvspace: Tensor, points: Tensor, numPatch: int,
     #                     torch.where(rightMargin[0])[0].to('cpu'),
     #                     torch.where(bottMargin[0])[0].to('cpu')])
     
-    batchStitchingLoss = torch.tensor([0.])
+    batchStitchingLoss = torch.tensor([0.]).to(points.device)
     batchStitchingDist = []
     batchStitchingIndex= []
     for batch in range(batchSize):
@@ -685,7 +685,9 @@ def criterionStitchingFullPatch(uvspace: Tensor, points: Tensor, numPatch: int,
             subMatrix = torch.where((boundaryIndice < ind + 1) * (boundaryIndice > ind))[0]
             if subMatrix.max()-subMatrix.min()+1 < subMatrix.size(0):
                 print("Error here!")
-            distanceMatrix[subMatrix.min():subMatrix.max()+1, ind*int(patchSize):(ind+1)*int(patchSize)] = _USRINF
+            mask = torch.zeros_like(distanceMatrix)
+            mask[subMatrix.min():subMatrix.max()+1, ind*int(patchSize):(ind+1)*int(patchSize)] = _USRINF
+            distanceMatrix = distanceMatrix + mask
         
         # keep the smallest distance 
         smallestDistance = torch.min(distanceMatrix, dim=1)[0]
@@ -726,7 +728,7 @@ def criterionStitchingFullPatch(uvspace: Tensor, points: Tensor, numPatch: int,
     # average the loss over all batches
     batchStitchingLoss /= batchSize
     
-    return batchStitchingLoss
+    return batchStitchingLoss[0]
         
 
 def normalDifference(gtPoints: Tensor, gtNormals: Tensor, 
