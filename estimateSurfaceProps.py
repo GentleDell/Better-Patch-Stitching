@@ -789,6 +789,54 @@ def normalDifference(gtPoints: Tensor, gtNormals: Tensor,
     return normalDiffAvg
 
 
+def overlap_criterion(gtPoints: Tensor, predPoints: Tensor, threshold: float,
+                      numPatches: int):
+    '''
+    It computes the overlap criterion of the given predicted points. For each 
+    ground truth point, it searches all neighbors within a given threshold 
+    and count the number of patches these neighbor coming from and average 
+    over all ground truth points.
+
+    Parameters
+    ----------
+    gtPoints : Tensor
+        Ground truth points, [B, N, 3].
+    predPoints : Tensor
+        Predicted points, [B, N, 3].
+    threshold : float
+        The threshold to find neighbors.
+    numPatches : int
+        The number of patches in the predicted point clouds.
+
+    Returnsotjadjdfsfddfesdfdsfsdfsdfsdfsdf
+    -------
+    The overlap criterion of the give predicted points.
+
+    '''
+    numBatchs = predPoints.shape[0]
+    numPoints = predPoints.shape[1]
+    dimension = predPoints.shape[2]
+    patchSize = numPoints/numPatches
+    
+    assert(gtPoints.shape[0]==numBatchs and gtPoints.shape[1]==numPoints and gtPoints.shape[2] == dimension)
+    
+    distanceMatrix = ( predPoints.detach().reshape(numBatchs, 1, numPoints, dimension)
+                   - gtPoints.detach().reshape(numBatchs, numPoints, 1, dimension)
+                   ).pow(2).sum(dim = 3).sqrt()
+
+    bchInd, gtInd, srcInd  = torch.where(distanceMatrix <= threshold)
+    patchInd = srcInd//patchSize
+    maskMat= torch.zeros([bchInd.max().int().item()+1, 
+                          gtInd.max().int().item()+1,
+                          patchInd.max().int().item()+1]).to(predPoints.device)
+    maskMat[bchInd, gtInd, patchInd.long()] += 1
+    
+    overlapCriterion = maskMat.sum(dim=2).mean()
+    
+    return overlapCriterion
+    
+    
+
 class surfacePropLoss(nn.Module):
     
     def __init__(self, numPatches : int, kNeighbors : int, normals : bool = True,

@@ -41,24 +41,28 @@ alphas_sciso:
   total_area: 100
   total_area_mult: 1.
 
-loss_patch_stitching: True
+# stitching loss
+loss_patch_stitching: False
 alpha_stitching: 0.001
-
+# consistency loss
 loss_smooth_surfaces: True
 surface_normal: True
-surface_varinace: False
+surface_varinace: True
 number_k_neighbor: 5
 alpha_surfProp: 0.001
 
 angle_threshold: 120  # degree
-reject_GlobalandPatch : False
+reject_GlobalandPatch : True
 reject_byPredNormal: False
 margin_size: 0.1
 
+# for evaluation
+show_overlap_criterion: True
+overlap_threshold: 0.05
 
 # Training
 epochs: 1000
-batch_size: 4
+batch_size: 2
 lr: 0.001
 
 # lr scheduler

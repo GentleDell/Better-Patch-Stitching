@@ -25,6 +25,8 @@ import numpy as np
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
+torch.autograd.set_detect_anomaly(True)
+
 # Settings.
 print_loss_tr_every = 50
 save_collapsed_every = 50
@@ -76,6 +78,8 @@ model = AtlasNetReimpl(
     angleThreshold     = conf['angle_threshold']/180*np.pi,    # zhantao
     rejGlobalandPatch  = conf["reject_GlobalandPatch"],        # zhantao
     rejByPredictNormal = conf['reject_byPredNormal'],          # zhantao
+    overlap_criterion  = conf['show_overlap_criterion'],       # zhantao 
+    overlap_threshold  = conf['overlap_threshold'],            # zhantao 
     marginSize       = conf['margin_size'],                    # zhantao
     gpu=gpu)
 

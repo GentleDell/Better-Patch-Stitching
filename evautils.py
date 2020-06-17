@@ -54,15 +54,19 @@ def compareOurs(path_conf: str, path_weight: str):
         dec_batch_norm   = conf['dec_batch_norm'],
         loss_scaled_isometry  = conf['loss_scaled_isometry'],
         loss_smooth_surfaces  = conf['loss_smooth_surfaces'],      # zhantao
+        loss_patch_stitching  = conf['loss_patch_stitching'],      # zhantao
         numNeighbor      = conf['number_k_neighbor'],              # zhantao
         alpha_scaled_isometry = conf['alpha_scaled_isometry'],
         alphas_sciso     = conf['alphas_sciso'], 
         alpha_scaled_surfProp = conf['alpha_surfProp'],            # zhantao
+        alpha_stitching  = conf['alpha_stitching'],                # zhantao
         useSurfaceNormal   = conf['surface_normal'],               # zhantao
         useSurfaceVariance = conf['surface_varinace'],             # zhantao
         angleThreshold     = conf['angle_threshold']/180*np.pi,    # zhantao
         rejGlobalandPatch  = conf["reject_GlobalandPatch"],        # zhantao
         rejByPredictNormal = conf['reject_byPredNormal'],          # zhantao
+        overlap_criterion  = conf['show_overlap_criterion'],       # zhantao 
+        overlap_threshold  = conf['overlap_threshold'],            # zhantao 
         marginSize       = conf['margin_size'],                    # zhantao
         gpu=gpu)
 
@@ -86,28 +90,35 @@ def compareOurs(path_conf: str, path_weight: str):
     # point cloud inference
     stitchCriterion = []
     normalDifference= []
+    ConsistencyLoss = []
+    overlapCriterion= []
     for bi, batch in enumerate(dl_va):
         
         model(batch['pcloud'])
         losses = model.loss(batch['pcloud'], normals_gt=batch['normals'], areas_gt=batch['area'])
         
-        stitchCriterion.append(losses['Err_stitching'])
+        stitchCriterion.append(losses['Err_stitching'].to('cpu'))
         normalDifference.append(losses[ 'normalDiff' ].to('cpu'))
+        ConsistencyLoss.append(losses['L_surfProp'].to('cpu'))
+        overlapCriterion.appen(losses['overlapCriterion'].to('cpu'))
         
         # torch.save( model.pc_pred.detach().cpu(), pjn( '/'.join(path_weight.split('/')[:-1]), 'regularSample{}.pt'.format(bi))) 
     
-    criterion  = torch.cat((torch.tensor(stitchCriterion)[:,None], torch.tensor(normalDifference)[:,None]), dim=1).numpy()
+    criterion  = torch.cat((torch.tensor(stitchCriterion) [:,None], 
+                            torch.tensor(normalDifference)[:,None],
+                            torch.tensor(ConsistencyLoss) [:,None],
+                            torch.tensor(overlapCriterion)[:,None]), dim=1).numpy()
     
     error_file = open( pjn( '/'.join(path_weight.split('/')[:-1]),'regularSampleFull{}_errors.txt'.format(bi)), 'w')
     np.savetxt( error_file, 
                 criterion, 
-                delimiter=',', header = 'stitching_error, normal_diff', comments="#")
+                delimiter=',', header = 'stitching_error, normal_diff, consistency_loss, overlapCriterion', comments="#")
     error_file.close()
     
     avgErr_file = open( pjn( '/'.join(path_weight.split('/')[:-1]),'regularSampleFull{}_avgErrors.txt'.format(bi)), 'w')
     np.savetxt( avgErr_file, 
                 criterion.mean(axis = 0), 
-                delimiter=',', header = 'stitching_error, normal_diff', comments="#")
+                delimiter=',', header = 'stitching_error, normal_diff, consistency_loss, overlapCriterion', comments="#")
     avgErr_file.close()
         
     return stitchCriterion, normalDifference
