@@ -43,9 +43,6 @@ parser.add_argument('--resume', help ='Resume training from the given path',
                     default = False)
 args = parser.parse_args()
 
-
-args.resume = True
-
 # Load the config file, prepare paths.
 conf = helpers.load_conf(args.conf)
 
@@ -80,6 +77,7 @@ model = AtlasNetReimpl(
     rejByPredictNormal = conf['reject_byPredNormal'],          # zhantao
     overlap_criterion  = conf['show_overlap_criterion'],       # zhantao 
     overlap_threshold  = conf['overlap_threshold'],            # zhantao 
+    enableAnaNormalErr = conf['show_analyticalNormalDiff'],    # zhantao
     marginSize       = conf['margin_size'],                    # zhantao
     gpu=gpu)
 
