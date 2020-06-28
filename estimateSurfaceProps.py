@@ -731,15 +731,15 @@ def criterionStitchingFullPatch(uvspace: Tensor, points: Tensor, numPatch: int,
     return batchStitchingLoss[0]
         
 
-def normalDifference(gtPoints: Tensor, gtNormals: Tensor, 
+def normalAngularDifference(gtPoints: Tensor, gtNormals: Tensor, 
                      predPoints: Tensor, globalNormals: Tensor):
     '''
     It computes the difference of the normal vectors.
     
     For each point, it search for the closest gt point and uses the gt normal 
     of the gt point as the ideal normal of the point. Then, it compute the 
-    orientation insensitive difference between the ideal normal vectors and 
-    the globally estimated normal vector.
+    angular difference between the ideal normal vectors and the globally 
+    estimated normal vector.
 
     Parameters
     ----------
@@ -751,6 +751,68 @@ def normalDifference(gtPoints: Tensor, gtNormals: Tensor,
         Predicted points.
     globalNormals : Tensor
         Globally estimated normals.
+
+    Returns
+    -------
+    normalAngDiffAvg : 
+        The angluar differnce between the gt normal and the global normal.
+
+    '''
+    gtNormals = gtNormals/torch.norm(gtNormals, dim = 2)[:,:,None]
+    
+    srcnumBatchs = predPoints.shape[0]
+    srcnumPoints = predPoints.shape[1]
+    srcdimension = predPoints.shape[2]
+    
+    dstnumBatchs = gtPoints.shape[0]
+    dstnumPoints = gtPoints.shape[1]
+    dstdimension = gtPoints.shape[2]
+
+    # get the normal of the nearest groundtruth point of each point
+    distanceToGT  = ( predPoints.detach().reshape(srcnumBatchs, srcnumPoints, 1, srcdimension)
+                      - gtPoints.detach().reshape(dstnumBatchs, 1, dstnumPoints, dstdimension)
+                      ).pow(2).sum(dim = 3).sqrt()
+    srcNearestInd = distanceToGT.argmin(dim = 2)
+    srcIdealNormal= gtNormals[:, srcNearestInd, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
+    
+    # use direction insensitive criterion
+    normalAngDiffVec = (srcIdealNormal[:,:,None,:] @ globalNormals[:,:,:,None]).squeeze().abs().clamp(0,1).acos()
+    normalAngDiffAvg = normalAngDiffVec.mean()
+
+    # visualize the normal, and the normal difference
+    # visNormalDiff(predPoints[0].to('cpu'), srcIdealNormal[0].to('cpu'), globalNormals[0].to('cpu'), 25)
+    # visNormalDiff(predPoints[0].to('cpu'), 
+    #               normalAngDiffVec[:,:,None].repeat(1,1,3)[0].to('cpu'), 
+    #               globalNormals[0].to('cpu'), 
+    #               25)
+    
+    return normalAngDiffAvg
+
+
+def analyticalNormalError(gtPoints: Tensor, gtNormals: Tensor, 
+                          predPoints: Tensor, predNormals: Tensor):
+    '''
+    
+    Duplicate of normalAngularDifference. They have exactly the same codes.
+    
+    It computes the difference betwwen the analytically predicted normal 
+    vectors and the ground truth vectors.
+    
+    For each point, it search for the closest gt point and uses the gt normal 
+    of the gt point as the ideal normal of the point. Then, it compute the 
+    the angular error between the ideal normal vectors and the analytically 
+    estimated normal vector.
+    
+    Parameters
+    ----------
+    gtPoints : Tensor
+        Ground truth points.
+    gtNormals : Tensor
+        Ground truth normals.
+    predPoints : Tensor
+        Predicted points.
+    predNormals : Tensor
+        Analytically estimated normals.
 
     Returns
     -------
@@ -776,14 +838,14 @@ def normalDifference(gtPoints: Tensor, gtNormals: Tensor,
     srcIdealNormal= gtNormals[:, srcNearestInd, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
     
     # use direction insensitive criterion
-    normalDiffVec = (1 - (srcIdealNormal[:,:,None,:] @ globalNormals[:,:,:,None]).squeeze().pow(2))
+    normalDiffVec = (srcIdealNormal[:,:,None,:] @ predNormals[:,:,:,None]).squeeze().abs().clamp(0, 1).acos()
     normalDiffAvg = normalDiffVec.mean()
     
     # visualize the normal, and the normal difference
-    # visNormalDiff(predPoints[0].to('cpu'), srcIdealNormal[0].to('cpu'), globalNormals[0].to('cpu'), 25)
+    # visNormalDiff(predPoints[0].to('cpu'), srcIdealNormal[0].to('cpu'), predNormals[0].to('cpu'), 25)
     # visNormalDiff(predPoints[0].to('cpu'), 
     #               normalDiffVec[:,:,None].repeat(1,1,3)[0].to('cpu'), 
-    #               globalNormals[0].to('cpu'), 
+    #               predNormals[0].to('cpu'), 
     #               25)
     
     return normalDiffAvg
@@ -796,6 +858,11 @@ def overlap_criterion(gtPoints: Tensor, predPoints: Tensor, threshold: float,
     ground truth point, it searches all neighbors within a given threshold 
     and count the number of patches these neighbor coming from and average 
     over all ground truth points.
+    
+    What is worth to be aware is that for a ground truth point, it is possible 
+    there is no predicted point in side its sphere, leading to 0 patches. This
+    could bring down the overlap criterion. A solution is only average over 
+    the gt points which have nearest neighbor.
 
     Parameters
     ----------
@@ -820,7 +887,7 @@ def overlap_criterion(gtPoints: Tensor, predPoints: Tensor, threshold: float,
     
     assert(gtPoints.shape[0]==numBatchs and gtPoints.shape[1]==numPoints and gtPoints.shape[2] == dimension)
     
-    distanceMatrix = ( predPoints.detach().reshape(numBatchs, 1, numPoints, dimension)
+    distanceMatrix = ( predPoints.detach().reshape(numBatchs,  1, numPoints, dimension)
                    - gtPoints.detach().reshape(numBatchs, numPoints, 1, dimension)
                    ).pow(2).sum(dim = 3).sqrt()
 
@@ -829,9 +896,21 @@ def overlap_criterion(gtPoints: Tensor, predPoints: Tensor, threshold: float,
     maskMat= torch.zeros([bchInd.max().int().item()+1, 
                           gtInd.max().int().item()+1,
                           patchInd.max().int().item()+1]).to(predPoints.device)
-    maskMat[bchInd, gtInd, patchInd.long()] += 1
     
-    overlapCriterion = maskMat.sum(dim=2).mean()
+    # visSpecifiedPoints(predPoints[0].detach().to('cpu'), [srcInd[(bchInd == 0)*(gtInd == 1600)]])
+    # predPoints[0,srcInd[(bchInd == 0)*(gtInd == 1600)]]
+    # gtPoints[0,1600]
+    
+    # mark all appearing patches for each gt point
+    maskMat[bchInd, gtInd, patchInd.long()] += 1
+    numOverlap = maskMat.sum(dim=2)
+    
+    # average over all valid points and then over batches.
+    overlapCriterion = torch.zeros([1]).to(predPoints.device)
+    for ct in range(numBatchs):
+        batchOverlap = numOverlap[ct]
+        overlapCriterion += batchOverlap[batchOverlap != 0].mean()
+    overlapCriterion /= numBatchs
     
     return overlapCriterion
     
