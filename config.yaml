@@ -57,6 +57,7 @@ reject_byPredNormal: False
 margin_size: 0.1
 
 # for evaluation
+show_analyticalNormalDiff : True
 show_overlap_criterion: True
 overlap_threshold: 0.05
 
