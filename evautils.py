@@ -5,6 +5,7 @@ Created on Wed May 13 23:32:40 2020
 
 @author: zhantao
 """
+import os
 import glob
 from os.path import join as pjn
 import numpy as np
@@ -43,6 +44,15 @@ def compareOurs(path_conf: str, path_weight: str):
     trstate = torch.load(path_weight)
     gpu  = torch.cuda.is_available()
 
+    #### ONLY FOR EVALUATION ####
+    conf['show_overlap_criterion'] = True
+    conf['overlap_threshold']    = 0.05
+    conf['loss_smooth_surfaces'] = True
+    conf['loss_patch_stitching'] = False
+    conf['alpha_stitching']      = 0.001
+    conf['show_analyticalNormalDiff'] = True
+    #### ONLY FOR EVALUATION ####
+
     # resume pretrained model
     model = AtlasNetReimpl(
         M=conf['M'], code=conf['code'], num_patches=conf['num_patches'],
@@ -66,7 +76,8 @@ def compareOurs(path_conf: str, path_weight: str):
         rejGlobalandPatch  = conf["reject_GlobalandPatch"],        # zhantao
         rejByPredictNormal = conf['reject_byPredNormal'],          # zhantao
         overlap_criterion  = conf['show_overlap_criterion'],       # zhantao 
-        overlap_threshold  = conf['overlap_threshold'],            # zhantao 
+        overlap_threshold  = conf['overlap_threshold'],            # zhantao
+        enableAnaNormalErr = conf['show_analyticalNormalDiff'],    # zhantao
         marginSize       = conf['margin_size'],                    # zhantao
         gpu=gpu)
 
@@ -92,33 +103,49 @@ def compareOurs(path_conf: str, path_weight: str):
     normalDifference= []
     ConsistencyLoss = []
     overlapCriterion= []
+    analyNormalError= []
+    chamferDistance = []
+    
     for bi, batch in enumerate(dl_va):
         
         model(batch['pcloud'])
         losses = model.loss(batch['pcloud'], normals_gt=batch['normals'], areas_gt=batch['area'])
         
-        stitchCriterion.append(losses['Err_stitching'].to('cpu'))
-        normalDifference.append(losses[ 'normalDiff' ].to('cpu'))
-        ConsistencyLoss.append(losses['L_surfProp'].to('cpu'))
-        overlapCriterion.appen(losses['overlapCriterion'].to('cpu'))
+        stitchCriterion.append (losses['Err_stitching'].to('cpu'))
+        normalDifference.append(losses['normalDiff'].to('cpu'))
+        ConsistencyLoss.append (losses['L_surfProp'].detach().to('cpu'))
+        overlapCriterion.append(losses['overlapCriterion'].to('cpu'))
+        analyNormalError.append(losses['analyticalNormalDiff'].to('cpu'))
+        chamferDistance.append (losses['loss_chd'].detach().to('cpu'))
         
-        # torch.save( model.pc_pred.detach().cpu(), pjn( '/'.join(path_weight.split('/')[:-1]), 'regularSample{}.pt'.format(bi))) 
+        torch.cuda.empty_cache() 
+        
+        # save point clouds
+        # folder2save = pjn( '/'.join(path_weight.split('/')[:-1]), 'prediction')
+        # if not os.path.isdir(folder2save):
+        #     os.mkdir(folder2save)
+            
+        # torch.save( model.pc_pred.detach().cpu(), pjn(folder2save, 'regularSample{}.pt'.format(bi))) 
     
     criterion  = torch.cat((torch.tensor(stitchCriterion) [:,None], 
                             torch.tensor(normalDifference)[:,None],
                             torch.tensor(ConsistencyLoss) [:,None],
-                            torch.tensor(overlapCriterion)[:,None]), dim=1).numpy()
+                            torch.tensor(overlapCriterion)[:,None],
+                            torch.tensor(analyNormalError)[:,None],
+                            torch.tensor(chamferDistance) [:,None]), dim=1).numpy()
+    
+    # print(criterion)
     
     error_file = open( pjn( '/'.join(path_weight.split('/')[:-1]),'regularSampleFull{}_errors.txt'.format(bi)), 'w')
     np.savetxt( error_file, 
                 criterion, 
-                delimiter=',', header = 'stitching_error, normal_diff, consistency_loss, overlapCriterion', comments="#")
+                delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
     error_file.close()
     
     avgErr_file = open( pjn( '/'.join(path_weight.split('/')[:-1]),'regularSampleFull{}_avgErrors.txt'.format(bi)), 'w')
     np.savetxt( avgErr_file, 
                 criterion.mean(axis = 0), 
-                delimiter=',', header = 'stitching_error, normal_diff, consistency_loss, overlapCriterion', comments="#")
+                delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
     avgErr_file.close()
         
     return stitchCriterion, normalDifference
@@ -149,10 +176,11 @@ def inferenceAll(conf_path: str, weightFolder : str):
         weightpath =  glob.glob( pjn(folder, '*.tar') )[0]
         
         if conf_path is None:
-            conf_path = glob.glob( pjn(folder, 'config.yaml') )[0]
-            print(conf_path)
-            
-        compareOurs(conf_path, weightpath)
+            temp_path = glob.glob( pjn(folder, 'config.yaml') )[0]
+            print(temp_path)
+            compareOurs(temp_path, weightpath)
+	else:
+            compareOurs(conf_path, weightpath)
 
 
 path_conf = None
