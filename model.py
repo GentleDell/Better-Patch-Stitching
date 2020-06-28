@@ -20,7 +20,7 @@ from encoder import ANEncoderPN
 from decoder import DecoderMultiPatch, DecoderAtlasNet
 from sampler import FNSamplerRandUniform
 from diff_props import DiffGeomProps
-from estimateSurfaceProps import surfacePropLoss, normalDifference
+from estimateSurfaceProps import surfacePropLoss, normalAngularDifference
 from estimateSurfaceProps import criterionStitchingFullPatch, overlap_criterion
 
 class FoldingNetBase(nn.Module):
@@ -192,6 +192,7 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
                  GlobalandPatch  = False, 
                  overlapCriterion= False,
                  overlapThreshold= 0.05,
+                 anaNormalCriterion= False,
                  marginSize = 0.1,
                  gpu = True):
         
@@ -216,6 +217,7 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         self._marginSize = marginSize                        # zhantao
         self._compute_overlapCriterion = overlapCriterion    # zhantao
         self._overlap_threshold = overlapThreshold           # zhantao
+        self._analyticalNormalCriterion= anaNormalCriterion  # zhantao 
 
         self._loss_sciso = torch.tensor(0.).to(self.device)
         self._zero = torch.tensor(0.).to(self.device)
@@ -245,8 +247,12 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         
         # zhantao, show patch overlapping criterion
         if self._compute_overlapCriterion:
-            print("\t patch overlapping criterion would be given during training and the threshold is %.1e."
+            print("\tpatch overlapping criterion would be given during training and the threshold is %.1e."
                   %(self._overlap_threshold))
+        
+        # zhantao, show analytical normal errors
+        if self._analyticalNormalCriterion:
+            print("\tanalytical normal error would be given during training.")
             
         if loss_scaled_isometry:
             self._alphas_si = {k: torch.tensor(float(v)).to(self.device)
@@ -342,10 +348,17 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
             if self._compute_overlapCriterion:
                 losses_sciso['overlapCriterion'] = overlap_criterion(
                         pc_gt.detach(),
-                        self.pc_pred, 
+                        self.pc_pred.detach(), 
                         threshold = self._overlap_threshold, 
                         numPatches = self._num_patches)
             
+            # analytically computed normal difference 
+            if self._analyticalNormalCriterion:
+                losses_sciso['analyticalNormalDiff'] = normalAngularDifference(
+                        pc_gt.detach(), normals_gt.detach(), 
+                        self.pc_pred.detach(), 
+                        self.geom_props['normals'].detach())
+                
             # stitching loss
             # zhantao
             if self._loss_patch_stitching:
@@ -384,7 +397,7 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
                     losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)
                 
                 # normal difference loss for comparison
-                losses_sciso['normalDiff'] = normalDifference(pc_gt.detach(), normals_gt.detach(), 
+                losses_sciso['normalDiff'] = normalAngularDifference(pc_gt.detach(), normals_gt.detach(), 
                                                               self.pc_pred.detach(), 
                                                               normalVecGlobal.detach().to(self.device))
                 
@@ -434,6 +447,7 @@ class AtlasNetReimpl(MultipatchDecoder):
                  rejGlobalandPatch  = False,          # zhantao 
                  overlap_criterion  = False,          # zhantao 
                  overlap_threshold  = 0.05,           # zhantao 
+                 enableAnaNormalErr = False,          # zhantao 
                  marginSize         = 0.1,            # zhantao
                  gpu = True,
                  **kwargs):
@@ -455,6 +469,7 @@ class AtlasNetReimpl(MultipatchDecoder):
             GlobalandPatch  = rejGlobalandPatch,             # zhantao 
             overlapCriterion= overlap_criterion,             # zhantao 
             overlapThreshold= overlap_threshold,             # zhantao 
+            anaNormalCriterion= enableAnaNormalErr,          # zhantao
             marginSize      = marginSize,                    # zhantao 
             gpu=gpu)
         Device.__init__(self, gpu)
