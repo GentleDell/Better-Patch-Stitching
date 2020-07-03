@@ -65,7 +65,8 @@ def compareOurs(path_conf: str, path_weight: str):
         loss_scaled_isometry  = conf['loss_scaled_isometry'],
         loss_smooth_surfaces  = conf['loss_smooth_surfaces'],      # zhantao
         loss_patch_stitching  = conf['loss_patch_stitching'],      # zhantao
-        numNeighbor      = conf['number_k_neighbor'],              # zhantao
+        numNeighborGlobal     = conf['knn_Global'],                # zhantao
+        numNeighborPatchwise  = conf['knn_Patch'],                 # zhantao
         alpha_scaled_isometry = conf['alpha_scaled_isometry'],
         alphas_sciso     = conf['alphas_sciso'], 
         alpha_scaled_surfProp = conf['alpha_surfProp'],            # zhantao
@@ -74,7 +75,7 @@ def compareOurs(path_conf: str, path_weight: str):
         useSurfaceVariance = conf['surface_varinace'],             # zhantao
         angleThreshold     = conf['angle_threshold']/180*np.pi,    # zhantao
         rejGlobalandPatch  = conf["reject_GlobalandPatch"],        # zhantao
-        rejByPredictNormal = conf['reject_byPredNormal'],          # zhantao
+        predNormalasPatchwise = conf['PredNormalforpatchwise'],    # zhantao
         overlap_criterion  = conf['show_overlap_criterion'],       # zhantao 
         overlap_threshold  = conf['overlap_threshold'],            # zhantao
         enableAnaNormalErr = conf['show_analyticalNormalDiff'],    # zhantao

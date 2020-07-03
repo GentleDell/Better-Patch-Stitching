@@ -181,18 +181,19 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
                  loss_smooth_surfaces = False, 
                  loss_patch_stitching = False, 
                  alpha_scaled_isometry= 0.,
-                 number_k_neighbor = 8,
+                 k_neighbor_Global = 20,
+                 k_neighbor_Patch  = 10,
                  alphas_sciso    = None, 
                  alpha_surfProp  = 0, 
                  alpha_stitching = 0, 
                  surfaceNormal   = False, 
                  surfaceVariance = False, 
                  angleThreshold  = 3.1415926,
-                 rejPredictNormal= False, 
                  GlobalandPatch  = False, 
+                 predNormalforPatch = False,
                  overlapCriterion= False,
                  overlapThreshold= 0.05,
-                 anaNormalCriterion= False,
+                 anaNormalCriterion = False,
                  marginSize = 0.1,
                  gpu = True):
         
@@ -206,14 +207,15 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         self._loss_smooth_surfaces = loss_smooth_surfaces    # zhantao
         self._loss_patch_stitching = loss_patch_stitching    # zhantao
         self._alpha_scaled_isometry = alpha_scaled_isometry
-        self._number_k_neighbor = number_k_neighbor          # zhantao
+        self._k_neighbor_Global = k_neighbor_Global          # zhantao
+        self._k_neighbor_Patch  = k_neighbor_Patch           # zhantao
         self._alpha_surfProp    = alpha_surfProp             # zhantao
         self._alpha_stitching   = alpha_stitching            # zhantao
         self._useSurfaceNormal  = surfaceNormal              # zhantao
         self._useSurfaceVariance= surfaceVariance            # zhantao
         self._rejAngleThreshold = angleThreshold             # zhantao 
-        self._rejectByPredNormal= rejPredictNormal           # zhantao
         self._rejectGlobandPatch= GlobalandPatch             # zhantao
+        self._predNormalforPatch= predNormalforPatch         # zhantao
         self._marginSize = marginSize                        # zhantao
         self._compute_overlapCriterion = overlapCriterion    # zhantao
         self._overlap_threshold = overlapThreshold           # zhantao
@@ -228,13 +230,16 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         
         # zhantao, enable surfave loss
         if self._loss_smooth_surfaces:        
-            self.surfProp = surfacePropLoss(self._num_patches, self._number_k_neighbor, 
-                                       normals = self._useSurfaceNormal, 
-                                       normalLossAbs = False, 
-                                       surfaceVariances = self._useSurfaceVariance, 
-                                       angleThreshold = self._rejAngleThreshold,
-                                       GlobalandPatch = self._rejectGlobandPatch)
-            
+            self.surfProp = surfacePropLoss(
+                            self._num_patches, self._k_neighbor_Global, 
+                            kNeighborsPatch    = self._k_neighbor_Patch, 
+                            normals            = self._useSurfaceNormal, 
+                            normalLossAbs      = False, 
+                            surfaceVariances   = self._useSurfaceVariance, 
+                            angleThreshold     = self._rejAngleThreshold,
+                            GlobalandPatch     = self._rejectGlobandPatch,
+                            predNormalforPatch = self._predNormalforPatch)
+ 
             print("\talpha_surfProp = %.1e, alpha_stitching = %.1e"
                   %(self._alpha_surfProp, self._alpha_stitching))
         
@@ -242,8 +247,6 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         if self._loss_patch_stitching:
             print("\tpatch stitching loss is enabled. The marginSize is = %.1e"
                   %(self._marginSize))
-        else:
-            print("\tpatch stitching loss is disabled.")
         
         # zhantao, show patch overlapping criterion
         if self._compute_overlapCriterion:
@@ -378,23 +381,15 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
             # zhantao
             if self._loss_smooth_surfaces:        
                                 
-                # convert to cpu to accelerate the loss computation 
                 if torch.get_num_threads() > 15:
                     torch.set_num_threads(15)
                 
-                # if using the predicted normal to reject neighboring points
-                if self._rejectByPredNormal:
-                    surfacePropDiff, normalVecGlobal = self.surfProp(self.pc_pred, 
-                                                                None, 
-                                                                self.geom_props['normals'])
-                    losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)    
-                    
-                # if using ground truth reject neighboring points
-                else:
-                    surfacePropDiff, normalVecGlobal = self.surfProp(self.pc_pred, 
-                                                                pc_gt, 
-                                                                normals_gt)
-                    losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)
+                surfacePropDiff, normalVecGlobal = self.surfProp(
+                                                            self.pc_pred,
+                                                            self.geom_props['normals'],
+                                                            pc_gt, 
+                                                            normals_gt)
+                losses_sciso['L_surfProp'] = torch.cat(surfacePropDiff).sum().to(self.device)
                 
                 # normal difference loss for comparison
                 losses_sciso['normalDiff'] = normalAngularDifference(pc_gt.detach(), normals_gt.detach(), 
@@ -435,7 +430,8 @@ class AtlasNetReimpl(MultipatchDecoder):
                  loss_scaled_isometry = False,
                  loss_smooth_surfaces = False,        # zhantao
                  loss_patch_stitching = False,        # zhantap
-                 numNeighbor = 8,                     # zhantao
+                 numNeighborGlobal    = 20,           # zhantao
+                 numNeighborPatchwise = 10,           # zhantao
                  alpha_scaled_isometry = 0., 
                  alphas_sciso = None, 
                  alpha_scaled_surfProp = 0.,          # zhantao
@@ -443,8 +439,8 @@ class AtlasNetReimpl(MultipatchDecoder):
                  useSurfaceNormal   = False,          # zhantao
                  useSurfaceVariance = False,          # zhantao
                  angleThreshold     = 3.14159,        # zhantao
-                 rejByPredictNormal = False,          # zhantao
                  rejGlobalandPatch  = False,          # zhantao 
+                 predNormalasPatchwise = False,       # zhantao
                  overlap_criterion  = False,          # zhantao 
                  overlap_threshold  = 0.05,           # zhantao 
                  enableAnaNormalErr = False,          # zhantao 
@@ -458,15 +454,16 @@ class AtlasNetReimpl(MultipatchDecoder):
             loss_smooth_surfaces  = loss_smooth_surfaces,    # zhantao
             loss_patch_stitching  = loss_patch_stitching,    # zhantao 
             alpha_scaled_isometry = alpha_scaled_isometry,
-            number_k_neighbor = numNeighbor,                 # zhantao
+            k_neighbor_Global     = numNeighborGlobal,       # zhantao 
+            k_neighbor_Patch      = numNeighborPatchwise,    # zhantao 
             alphas_sciso = alphas_sciso, 
             alpha_surfProp  = alpha_scaled_surfProp,         # zhantao
             alpha_stitching = alpha_stitching,               # zhantao
             surfaceNormal   = useSurfaceNormal,              # zhantao 
             surfaceVariance = useSurfaceVariance,            # zhantao
             angleThreshold  = angleThreshold,                # zhantao
-            rejPredictNormal= rejByPredictNormal,            # zhantao
             GlobalandPatch  = rejGlobalandPatch,             # zhantao 
+            predNormalforPatch    = predNormalasPatchwise,         # zhantao
             overlapCriterion= overlap_criterion,             # zhantao 
             overlapThreshold= overlap_threshold,             # zhantao 
             anaNormalCriterion= enableAnaNormalErr,          # zhantao

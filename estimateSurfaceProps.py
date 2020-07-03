@@ -19,6 +19,8 @@ def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor,
     """
     It finds the k-nearest neighbors for each points. The mean of each point
     cluster is removed.
+    
+    The gtNormal is used to constraint the knn with the given angle threshold.
 
     Parameters
     ----------
@@ -35,9 +37,8 @@ def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor,
         and surface variance estimation fail/do not help the final point cloud,
         the gtNormal of the point's correspoing gtPoint are used. Only points
         whose gtNormal is close the noraml of the src point will be considered
-        as KNN of the targe point. 
-        
-        It is optional but it has to be given together with gtPoints. 
+        as KNN of the targe point. It is optional but need to be given 
+        together with gtPoints. 
     angleThreshold : float 
         The threshold to remove bad knn points.
 
@@ -55,50 +56,33 @@ def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor,
                      - points.detach().reshape(srcnumBatchs, 1, srcnumPoints, srcdimension)
                       ).pow(2).sum(dim = 3).sqrt()
     
-    # if the gtNormal and gtPoints are available, we would use the gtNormal to 
-    # constraint the knn with the angle threshold
-    if gtNormal is not None and gtPoints is not None:
-        
+    # if knn rejection is enabled
+    if gtPoints is not None and gtNormal is not None: 
         dstnumBatchs = gtPoints.shape[0]
         dstnumPoints = gtPoints.shape[1]
         dstdimension = gtPoints.shape[2]
-    
+ 
         # get the normal of the nearest groundtruth point of each point
-        distanceToGT  = ( points.detach().reshape(srcnumBatchs, srcnumPoints, 1, srcdimension)
+        distanceToGT   = ( points.detach().reshape(srcnumBatchs, srcnumPoints, 1, srcdimension)
                           - gtPoints.detach().reshape(dstnumBatchs, 1, dstnumPoints, dstdimension)
                           ).pow(2).sum(dim = 3).sqrt()
-        srcNearestInd = distanceToGT.argmin(dim = 2)
-        srcIdealNormal= gtNormal[:, srcNearestInd, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
+        srcNearestInd  = distanceToGT.argmin(dim = 2)
+        srcIdealNormal = gtNormal[:, srcNearestInd, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
         
-        angleBtnormal = srcIdealNormal @ srcIdealNormal.permute(0,2,1) 
-        invalidKnnPt  = angleBtnormal <= torch.tensor(angleThreshold).cos() 
+        angleBtnormal  = srcIdealNormal @ srcIdealNormal.permute(0,2,1) 
+        invalidKnnPt   = angleBtnormal <= torch.tensor(angleThreshold).cos() 
         distanceMatrix[invalidKnnPt] = _USRINF
         
         # This call could be used to verify that the global knn is 
         # constrainted by the angle threshold 
-        # visSpecifiedPoints(points[0].detach(), [torch.where(invalidKnnPt[0,769] == 0)[0]])
-        
-    # if the gtNormal is given while the gtPoints is not given,it treats 
-    # the gtNormal as the predicted normal vector, so here we directly use 
-    # the normal to reject invalid neighbors.
-    elif gtNormal is not None and gtPoints is None:
-        raise ValueError("using pridicted normal as constraint is incorrect! No support anymore!") 
-        predictNormal = gtNormal/gtNormal.norm(dim=2)[:,:,None]
-        angleBtnormal = predictNormal @ predictNormal.permute(0,2,1) 
-        invalidKnnPt  = angleBtnormal <= torch.tensor(angleThreshold).cos() 
-        distanceMatrix[invalidKnnPt] = _USRINF
-        
-        # This call could be used to verify that the global knn is 
-        # constrainted by the angle threshold 
-        # visSpecifiedPoints(points[0].detach(), [torch.where(invalidKnnPt[0,769] == 0)[0]])
-        # visNormalDiff(points[0].detach(), predictNormal[0].detach(), predictNormal[0].detach(), 25, visAbs=False)
-        
+        # visSpecifiedPoints(points[0].detach().to('cpu'), [torch.where(invalidKnnPt[0,769] == 0)[0]])
+
     colCloseIndice = distanceMatrix.topk(k, dim = 1, largest = False)[1].permute(0,2,1)
     kNearestPoints = points[:, colCloseIndice, :][torch.arange(srcnumBatchs), torch.arange(srcnumBatchs), :, :]
     
     # This call could be used to verify that patchwise knns are not 
     # constrainted by the angle threshold.
-    # visSpecifiedPoints(points[0].detach(), [colCloseIndice[0,69]])
+    # visSpecifiedPoints(points[0].detach().to('cpu'), [colCloseIndice[0,69]])
     
     # set the target points to be the origin of the local coordinates
     realignedPoint = kNearestPoints - points[:,:,None,:].repeat_interleave(k, dim = 2)
@@ -134,7 +118,7 @@ def estimateNormal( kNearestPoints : Tensor ) -> Tensor:
 
 def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int, 
                         gtPoints : Tensor = None, gtNormal : Tensor = None,
-                        angleThreshold : float = 1.5708) -> Tensor:
+                        angleThreshold : float = 3.14159) -> Tensor:
     """
     It estimates patch-wise normal vectors.
 
@@ -178,16 +162,17 @@ def estimatePatchNormal(points : Tensor, numPatches : int, numNeighbor : int,
         
         for patchCnt in range(numPatches):
             
-            patchPC = points[batch, patchCnt*patchPoint : (patchCnt + 1)*patchPoint, :][None, :, :]
+            patchPC  = points[batch, patchCnt*patchPoint : (patchCnt + 1)*patchPoint, :][None, :, :]   
             
+            # reject knn
             if gtPoints is not None and gtNormal is not None:
                 kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints[batch][None, :, :],
                                               gtNormal[batch][None, :, :], angleThreshold)
+            # do not reject knn
             else:
                 kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints, gtNormal, angleThreshold)
                 
-            normals = estimateNormal(kNearest)
-            
+            normals  = estimateNormal(kNearest)           
             batchNormalVec.append(normals)
         
         normalVec.append(torch.cat(batchNormalVec, dim = 1))
@@ -231,7 +216,7 @@ def estimateSurfVariance( kNearestPoints : Tensor ) -> Tensor:
 
 def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int,
                          gtPoints : Tensor = None, gtNormal : Tensor = None,
-                         angleThreshold : float = 1.5708) -> Tensor:
+                         angleThreshold : float = 3.14159) -> Tensor:
     """
     It estimates patch-wise surface variance.
 
@@ -263,12 +248,14 @@ def estimatePatchSurfVar(points : Tensor, numPatches : int, numNeighbor : int,
             
             patchPC = points[batch, patchCnt*patchPoint : (patchCnt + 1)*patchPoint, :][None, :, :]
             
+            # reject knn
             if gtPoints is not None and gtNormal is not None:
                 kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints[batch][None, :, :],
-                                              gtNormal[batch][None, :, :], angleThreshold)
+                                               gtNormal[batch][None, :, :], angleThreshold)
+            # do not reject knn
             else:
                 kNearest = getkNearestNeighbor(patchPC, numNeighbor, gtPoints, gtNormal, angleThreshold)
-            
+        
             surfVar = estimateSurfVariance(kNearest)
             
             batchSurfVars.append(surfVar)
@@ -918,14 +905,17 @@ def overlap_criterion(gtPoints: Tensor, predPoints: Tensor, threshold: float,
 
 class surfacePropLoss(nn.Module):
     
-    def __init__(self, numPatches : int, kNeighbors : int, normals : bool = True,
+    def __init__(self, numPatches : int, kNeighborsGlobal : int, 
+                 kNeighborsPatch : int, normals : bool = True,
                  normalLossAbs : bool = True, surfaceVariances : bool = False,
                  weight : list = [1,1], angleThreshold : float = 3.14159,
-                 GlobalandPatch: bool = False):
+                 GlobalandPatch: bool = False, 
+                 predNormalforPatch : bool = False):
         
         nn.Module.__init__(self)
         self._numPatches = numPatches
-        self._kNeighbors = kNeighbors
+        self._kNeighborG = kNeighborsGlobal
+        self._kNeighborP = kNeighborsPatch
         self._useNormals = normals
         self._useSurfVar = surfaceVariances
                 
@@ -937,26 +927,33 @@ class surfacePropLoss(nn.Module):
         self._angleThreshold= angleThreshold
         
         self._GlobalandPatch= GlobalandPatch
+        self._predNormalforPatch = predNormalforPatch    # use GT normal as patch-wise normal
         
-        print("Surface loss is enabled: \n\tnumNeigbor = %d,\tuseNormals = %i,\tuseSurfVar = %i,\tangleThres = %f,\tGlob&Patch = %i,\t normalWeig = %f,\t surfWeight = %f"
-              %(self._kNeighbors , self._useNormals, self._useSurfVar, self._angleThreshold, self._GlobalandPatch, self._normalWeight, self._surfVarWeight))
+        print("Surface loss is enabled: \n\tnumNeigborG = %d,\tnumNeigborP = %d,\tuseNormals = %i,\tuseSurfVar = %i,\tangleThres = %f,\tGlob&Patch = %i,\tpredNormalforPatch = %i, \t normalWeig = %f,\t surfWeight = %f"
+              %(self._kNeighborG, self._kNeighborP, self._useNormals, self._useSurfVar, self._angleThreshold, self._GlobalandPatch, self._predNormalforPatch, self._normalWeight, self._surfVarWeight))
         
         
-    def forward(self, pointCloud : Tensor, gtPoints : Tensor = None, gtNormal : Tensor = None):
+    def forward(self, pointCloud : Tensor, predNormal: Tensor, gtPoints : Tensor = None, gtNormal : Tensor = None):
         
-        kNearestNeighbor = getkNearestNeighbor(pointCloud, self._kNeighbors, gtPoints, gtNormal, self._angleThreshold)
+        kNearestNeighbor = getkNearestNeighbor(pointCloud, self._kNeighborG, gtPoints, gtNormal, self._angleThreshold)
         surfacePropDiff  = []
+        
         
         if self._useNormals:
             normalVecGlobal  = estimateNormal(kNearestNeighbor)
             
-            if self._GlobalandPatch:
-                # reject invalid KNN points for patches
-                normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors, gtPoints, gtNormal, self._angleThreshold)
+            if self._predNormalforPatch:
+                # use gt normal as patch-wise normal for comparison. Its
+                # priority is higer than Global and Patch.
+                normalPatchwise = predNormal
             else:
-                # do not reject invalid KNN for patches
-                normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighbors)
-            
+                if self._GlobalandPatch:
+                    # reject invalid KNN points for patches
+                    normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighborP, gtPoints, gtNormal, self._angleThreshold)
+                else:
+                    # do not reject invalid KNN for patches
+                    normalPatchwise  = estimatePatchNormal(pointCloud, self._numPatches, self._kNeighborP)
+                
             if self._normalLossAbs: 
                 # use the absolute value difference between normal vectors
                 normalVectorLoss = (normalPatchwise.abs() - normalVecGlobal.abs()).norm(dim=2).mean()[None]
@@ -972,10 +969,10 @@ class surfacePropLoss(nn.Module):
             
             if self._GlobalandPatch:
                 # reject invalid KNN points for patches
-                SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors, gtPoints, gtNormal, self._angleThreshold)
+                SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighborP, gtPoints, gtNormal, self._angleThreshold)
             else:
                 # do not reject invalid KNN for patches
-                SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighbors)
+                SurfVarPatchwise = estimatePatchSurfVar(pointCloud, self._numPatches, self._kNeighborP)
             
             SurfVarianceLoss = (SurfVarPatchwise - SurfVarGlobal).pow(2).mean()[None]
         

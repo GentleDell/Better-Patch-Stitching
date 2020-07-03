@@ -48,12 +48,13 @@ alpha_stitching: 0.001
 loss_smooth_surfaces: True
 surface_normal: True
 surface_varinace: True
-number_k_neighbor: 5
 alpha_surfProp: 0.001
 
 angle_threshold: 120  # degree
-reject_GlobalandPatch : True
-reject_byPredNormal: False
+knn_Global : 20
+knn_Patch  : 10
+reject_GlobalandPatch : False
+PredNormalforpatchwise: False
 margin_size: 0.1
 
 # for evaluation
