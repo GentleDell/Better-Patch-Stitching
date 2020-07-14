@@ -3,38 +3,33 @@
 """
 Created on Mon Jul 13 18:02:41 2020
 
+Some pytorch3D render codes are from the Facebook pytorch3D project.
+
 @author: zhantao
 """
-
-import os
-import sys
 
 import torch 
 from torch import Tensor
 import matplotlib.pyplot as plt
-from skimage.io import imread
-
-# Util function for loading meshes
-from pytorch3d.io import load_objs_as_meshes
-# Data structures and functions for rendering
 from pytorch3d.structures import Meshes, Textures
 from pytorch3d.renderer import (
     look_at_view_transform,
     OpenGLPerspectiveCameras, 
-    PointLights, 
-    DirectionalLights, 
-    Materials, 
+    PointLights,     
     RasterizationSettings, 
     MeshRenderer, 
     MeshRasterizer,  
     HardPhongShader
 )
 
+from visutils import generateColors
+
 
 def image_grid( images, rows=None, cols=None, fill: bool = True, 
                 show_axes: bool = False, rgb: bool = True):
     """
-    # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
+    # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved. 
+    This function ONLY.
     
     A util function for plotting a grid of images.
 
@@ -107,7 +102,7 @@ def genTrifacet( numPoints: int, numPatch: int ) -> Tensor:
     rowSize   = torch.sqrt(patchSize)
     pointList = torch.arange(patchSize.item())
     
-    leftMost  = pointList%10 == 0
+    leftMost  = pointList%rowSize == 0
     rightMost = torch.roll( leftMost, rowSize.int().item()-1, 0)
     bottom    = pointList >= (patchSize - rowSize)
     
@@ -115,9 +110,9 @@ def genTrifacet( numPoints: int, numPatch: int ) -> Tensor:
     bottRigTri= pointList[~leftMost * ~bottom][:, None]
     
     triFacetsPatch = torch.cat(
-                        [torch.cat([topLeftTri, topLeftTri+1, topLeftTri+rowSize ],dim = 1),
-                         torch.cat([bottRigTri, bottRigTri+rowSize, bottRigTri+rowSize-1 ],dim = 1)],
-                        dim = 0)
+                        [torch.cat([topLeftTri, topLeftTri+1, topLeftTri+rowSize ], dim = 1),
+                         torch.cat([bottRigTri, bottRigTri+rowSize, bottRigTri+rowSize-1 ], dim = 1)],
+                         dim = 0)
     
     increments  = torch.arange(0, numPoints, patchSize.item()).repeat_interleave( triFacetsPatch.shape[0] )[:, None]
     triFacetsPc = triFacetsPatch.repeat(numPatch, 1) + increments
@@ -125,11 +120,36 @@ def genTrifacet( numPoints: int, numPatch: int ) -> Tensor:
     return triFacetsPc
     
 
-def createRenderer( device ):
+def createRenderer( device, camera, light, imageSize ):
+    '''
+    It creates a pytorch3D renderer with the given camera pose, light source
+    and output image size.
+
+    Parameters
+    ----------
+    device : 
+        Device on which the renderer is created.
+    camera : 
+        Camera pose.
+    light  : 
+        Position of the light source.
+    imageSize : 
+        The size of the rendered image.
+
+    Returns
+    -------
+    renderer : 
+        Pytorch3D renderer.
+
+    '''
+    if camera is None:
+        camera = (2.0, -20.0, 180.0)
+    if light is None:
+        light  = (0.0, 2.0, 0.0)
+    
     # Initialize an OpenGL perspective camera.
-    # With world coordinates +Y up, +X left and +Z in, the front of the cow is facing the -Z direction. 
-    # So we move the camera by 180 in the azimuth direction so it is facing the front of the cow. 
-    R, T = look_at_view_transform(2, +20, 180) 
+    # With world coordinates +Y up, +X left and +Z into the screen. 
+    R, T = look_at_view_transform(camera[0], camera[1], camera[2]) 
     cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     
     # Define the settings for rasterization and shading. Here we set the output image to be of size
@@ -139,13 +159,13 @@ def createRenderer( device ):
     # explanations of these parameters. Refer to docs/notes/renderer.md for an explanation of 
     # the difference between naive and coarse-to-fine rasterization. 
     raster_settings = RasterizationSettings(
-        image_size=512, 
+        image_size=imageSize, 
         blur_radius=0.0, 
         faces_per_pixel=1, 
     )
     
     # Place a point light at -y direction. 
-    lights = PointLights(device=device, location=[[0.0, -3.0, 0.0]])
+    lights = PointLights(device=device, location=[[ light[0], light[1], light[2] ]])
     
     # Create a phong renderer by composing a rasterizer and a shader. 
     renderer = MeshRenderer(
@@ -159,12 +179,36 @@ def createRenderer( device ):
             lights=lights
         )
     )
-
+    
     return renderer
 
 
-def rederMultiPose( mesh, render, batch_size = 20, device = 'cuda' ):
+def renderMultiPose( mesh, render, batch_size = 20, row: int = 4, 
+                     col: int = 5, device = 'cuda' ):
+    '''
+    It generates multiple camera poses to render images with settings in 
+    the given renderer. The number of poses is the batch_size.
 
+    Parameters
+    ----------
+    mesh : 
+        Mesh to be rendered.
+    render : 
+        Pytorch3D renderer.
+    batch_size : optional
+        The number of camera poses to be generated. The default is 20.
+    row : int, optional
+        The number of rows when show the images. The default is 4.
+    col : int, optional
+        The number of columns when show the images. The default is 5.
+    device : optional
+        The device where the rendering takes place. The default is 'cuda'.
+
+    Returns
+    -------
+    None.
+
+    '''
     
     # Create a batch of meshes by repeating the cow mesh and associated textures. 
     # Meshes has a useful `extend` method which allows us do this very easily. 
@@ -185,10 +229,41 @@ def rederMultiPose( mesh, render, batch_size = 20, device = 'cuda' ):
     # so the renderer does not need to be reinitialized if any of the settings change.
     images = render(meshes, cameras=cameras)
     
-    image_grid(images.cpu().numpy(), rows=4, cols=5, rgb=True)
+    image_grid(images.cpu().numpy(), rows=row, cols=col, rgb=True)
 
 
-def renderPointcloud( pathToPc: str, numPatch: int ):
+def renderPointcloud( pathToPc: str, numPatch: int, camera: tuple = None, 
+                      light: tuple = None, imageSize : int = 512, 
+                      batchSize: int = 20, row : int = 4, col: int = 5 ):
+    '''
+    It renders the point clouds under the given path with the given parameters.
+    The point clouds have to be generated from regularly sampled uv points.
+
+    Parameters
+    ----------
+    pathToPc : str
+        Path to the point clouds that are generated from regularly sampled
+        2D uv points.
+    numPatch : int
+        The number of patches contained in each point cloud.
+    camera : tuple, optional
+        Camera pose to render the image. The default is None.
+    light : tuple, optional
+        Light source position to render the image. The default is None.
+    imageSize : int, optional
+        The size of the rendered image. The default is 512.
+    batchSize : int, optional
+        The number of multiple poses to be rendered. The default is 20.
+    row : int, optional
+        The number of rows when show the images. The default is 4.
+    col : int, optional
+        The number of columns when show the images. The default is 5.
+
+    Returns
+    -------
+    None.
+
+    '''
     
     if torch.cuda.is_available():
         device = torch.device("cuda:0")
@@ -198,16 +273,26 @@ def renderPointcloud( pathToPc: str, numPatch: int ):
     
     vertex  = torch.load(pathToPc).to(device)
     facets  = genTrifacet(vertex.shape[1], numPatch).to(device)
-    render  = createRenderer( device )
+    render  = createRenderer( device, camera, light, imageSize )
     
-    vertRGB = torch.ones_like(vertex[0])[None].to(device)
+    vertRGB = torch.tensor(generateColors(numPatch, vertex.shape[1])[None]).to(device)
     texture = Textures(verts_rgb=vertRGB)
     
     for ct in range(vertex.shape[0]):       
         
         triMesh = Meshes(verts=[vertex[ct]], faces=[facets], textures=texture)
         
-        rederMultiPose(triMesh, render)
+        if camera is not None:
+            images = render(triMesh)
+            
+            plt.figure(figsize = [10, 10])
+            plt.imshow(images.cpu().numpy()[0])
+        else:
+            if row*col == batchSize:
+                renderMultiPose(triMesh, render, batchSize, row, col)
+            else:
+                renderMultiPose(triMesh, render, 20, 4, 5)  
     
 
-renderPointcloud('../../models/comparison/plane/plane_fromScratch_100_None/prediction/regularSample1.pt', 25)
+renderPointcloud('../../models/comparison/plane/plane_fromScratch_100_None/prediction/regularSample1.pt', 25,
+                 camera = (1.2, 20.0, 180.0), light = (0.0, 2.0, 0.0))
