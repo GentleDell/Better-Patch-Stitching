@@ -373,19 +373,21 @@ def meshToOBJ( pathToPc: str, numPatch: int, folderToSave: str ):
     facets  = genTrifacet(vertex.shape[1], numPatch).int()
     batches = vertex.shape[0]
     
+    prefix  = pathToPc.split('/')[-1][:-3]
+    
     for ct in range(batches):
         
         OBJ = mesh2obj(vertex[ct], facets, numPatch)
     
-        with open( pjn(folderToSave, 'object{:d}.obj'.format(ct)), 'w') as f:
+        with open( pjn(folderToSave, prefix+'_object{:d}.obj'.format(ct)), 'w') as f:
             f.writelines(OBJ)
     
 
-# renderPointcloud('../../models/comparison/chair/G4Pred/chair50_continue25_001_normalOnly_kG4P4_gtNormal_GlobalandPatch_120d_noPredNormal/prediction/regularSample66.pt', 25,
-#                  camera = (2.0, 0.0, -90.0), light = (0.0, 2.0, 0.0))
-# # chair/G4Pred/chair50_continue25_001_normalOnly_kG4P4_gtNormal_GlobalandPatch_120d_noPredNormal/prediction
-# # camera = (1.2, 20.0, 180.0), light = (0.0, 2.0, 0.0)
+renderPointcloud('../../models/comparison/plane/G8Pred/plane100_countinue100_001_normalOnly_kG8P8_gtNormal_GlobalandPatch_120d_withPredNormal_stitching/prediction/regularSample0.pt', 25,
+                  camera = (1.5, 20.0, 180.0), light = (0.0, 2.0, 0.0))
+# chair/G4Pred/chair50_continue25_001_normalOnly_kG4P4_gtNormal_GlobalandPatch_120d_noPredNormal/prediction
+# camera = (1.2, 20.0, 180.0), light = (0.0, 2.0, 0.0)
 
-meshToOBJ('../../models/comparison/chair/chair50_continue25_None/prediction/regularSample66.pt', 
-          25,
-          '../../models/')
+# meshToOBJ('../../models/comparison/car_fromPretrained/G4Pred/carPre_continue50_001_normalOnly_kG4P4_gtNormal_GlobalandPatch_120d_withPredNormal_stitching/prediction/regularSample11.pt', 
+#           25,
+#           '../../RenderedResults/OBJ/car/OUR2_withN_stitching')

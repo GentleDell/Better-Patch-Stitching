@@ -17,8 +17,8 @@ _USRINF = 1e8
 def getkNearestNeighbor( points : Tensor, k : int, gtPoints : Tensor, 
                          gtNormal : Tensor, angleThreshold : float)  -> Tensor: 
     """
-    It finds the k-nearest neighbors for each points. The mean of each point
-    cluster is removed.
+    It finds the k-nearest neighbors for each points. The target points are 
+    set to the center of the each cluster.
     
     The gtNormal is used to constraint the knn with the given angle threshold.
 
@@ -929,7 +929,7 @@ class surfacePropLoss(nn.Module):
         self._GlobalandPatch= GlobalandPatch
         self._predNormalforPatch = predNormalforPatch    # use GT normal as patch-wise normal
         
-        print("Surface loss is enabled: \n\tnumNeigborG = %d,\tnumNeigborP = %d,\tuseNormals = %i,\tuseSurfVar = %i,\tangleThres = %f,\tGlob&Patch = %i,\tpredNormalforPatch = %i, \t normalWeig = %f,\t surfWeight = %f"
+        print("Surface loss is enabled: \n\t numNeigborG = %d,\t numNeigborP = %d,\t useNormals = %i,\t useSurfVar = %i,\t angleThres = %f,\t Glob&Patch = %i,\t predNormalforPatch = %i, \t normalWeig = %.1e,\t surfWeight = %.1e"
               %(self._kNeighborG, self._kNeighborP, self._useNormals, self._useSurfVar, self._angleThreshold, self._GlobalandPatch, self._predNormalforPatch, self._normalWeight, self._surfVarWeight))
         
         

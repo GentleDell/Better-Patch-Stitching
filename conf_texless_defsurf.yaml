@@ -1,0 +1,128 @@
+# Training run.
+path_train_run: ''
+name_base: ''
+
+# Data
+# server
+path_root: '/cvlabsrc1/cvlab/datasets_jan/texless_defsurf'
+path_intrinsic_matrix: '/cvlabsrc1/cvlab/datasets_jan/texless_defsurf/camera_intrinsics.txt'
+pcloud_scale: 1
+# local
+# path_root: '../Dataset_mini/textureLess_SVR'
+# path_intrinsic_matrix: '../Dataset_mini/textureLess_SVR/camera_intrinsics.txt'
+
+### Model
+model: 'atlasnet_svr'
+N: 2800 
+M: 2800 
+
+# Encoder
+img_shape: [224, 224]
+code: 1024
+enc_freeze: False
+enc_weights: # '/cvlabdata2/home/jan/projects/3rd_party/atlasnet/AtlasNet/trained_models/ae_atlasnet_25_enc.pth'
+normalize_cw: False
+
+# Decoder
+num_patches: 14  # 4 for cloth, 14 for tshirt, 25 for shapeNet
+
+dec_activ_fns: 'softplus'
+dec_use_tanh: False
+dec_batch_norm: False
+
+# Losses
+loss_normals: False
+loss_curv_mean: False
+loss_curv_gauss: False
+loss_scaled_isometry: True
+
+alpha_chd: 1.0
+alpha_normals: 0.0
+alpha_curv_mean: 0.0
+alpha_curv_gauss: 0.0
+alpha_scaled_isometry: 0.001
+
+loss_scaled_isometry_impl: 'loss_skew_stretch_iso_area_parameterized'
+alphas_sciso:
+  E: 1.
+  G: 1.
+  skew: 1.
+  stretch: 0.
+  total_area: 100
+  total_area_mult: 1.0
+
+reg_mode: 'dist'  # 'norm_line', 'norm_ang', 'dist'
+loss_echd_mode: 'atlasnet'
+
+mask_faces:
+mask_nring: 0
+mask_losses: []
+
+# areae loss 
+loss_patch_area: True
+
+# stitching loss
+loss_patch_stitching: False
+alpha_stitching: 0.001
+# consistency loss
+loss_smooth_surfaces: True
+surface_normal: True
+surface_varinace: False
+alpha_surfProp: 0.001
+
+angle_threshold: 120  # degree
+knn_Global : 4
+knn_Patch  : 4
+reject_GlobalandPatch : True
+PredNormalforpatchwise: True
+margin_size: 0.1
+
+# for evaluation
+show_analyticalNormalDiff : False
+show_overlap_criterion: False
+overlap_threshold: 0.05
+
+# Training
+epochs: 1000
+batch_size: 3
+lr: 0.001
+weight_decay: 0.0
+
+# lr scheduler
+reduce_lr_on_plateau: False
+lr_factor: 0.3
+lr_patience: 75
+lr_min: 0.000001
+lr_threshold: 0.0001
+
+# Savers
+train_state_save_period: 1
+img_save_period: 10
+pcloud_save_period: 5
+pcloud_samples_per_period: 3
+
+#### Dataset.
+
+# LOCAL
+# obj_seqs_tr:
+#   cloth: ['Lr_top_edge_3_a']
+# obj_seqs_va:
+#   cloth: ['Lr_top_edge_3_b']
+
+
+# # CLOTH
+# obj_seqs_tr:
+#   cloth: ['Lr_bottom_edge', 'Lr_bottom_edge_tl_corn', 'Lr_left_edge',
+#           'Lr_tl_tr_corns', 'Lr_top_edge_1', 'Lr_top_edge_2', 'Lr_top_edge_4']
+# obj_seqs_va:
+#   cloth: ['Lr_top_edge_3_a']
+# obj_seqs_te:
+#   cloth: ['Lr_top_edge_3_b']
+
+## TSHIRT
+obj_seqs_tr:
+ tshirt: ['Lr_back', 'Lr_front_1', 'Lr_front_big', 'Lr_tight']
+obj_seqs_va:
+ tshirt: ['Lr_front_2']
+obj_seqs_te:
+ tshirt: ['Lr_front_3']

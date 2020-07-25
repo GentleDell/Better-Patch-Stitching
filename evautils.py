@@ -51,6 +51,11 @@ def compareOurs(path_conf: str, path_weight: str):
     conf['loss_patch_stitching'] = False
     conf['alpha_stitching']      = 0.001
     conf['show_analyticalNormalDiff'] = True
+    conf['surface_normal']       = True
+    conf['surface_varinace']     = True
+    conf['knn_Global']           = 20
+    conf['knn_Patch']            = 20
+    conf['PredNormalforpatchwise'] = False
     #### ONLY FOR EVALUATION ####
 
     # resume pretrained model
@@ -174,6 +179,10 @@ def inferenceAll(conf_path: str, weightFolder : str):
 
     '''
     for folder in sorted(glob.glob( pjn(weightFolder, '*'))):
+        
+        if len(glob.glob( pjn(folder, '*.tar') )) == 0:
+            continue
+        
         weightpath =  glob.glob( pjn(folder, '*.tar') )[0]
         
         if conf_path is None:

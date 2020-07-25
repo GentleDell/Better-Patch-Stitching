@@ -41,6 +41,9 @@ alphas_sciso:
   total_area: 100
   total_area_mult: 1.
 
+# areae loss 
+loss_patch_area: False
+
 # stitching loss
 loss_patch_stitching: False
 alpha_stitching: 0.001

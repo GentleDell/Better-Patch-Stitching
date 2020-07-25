@@ -20,6 +20,7 @@ from encoder import ANEncoderPN
 from decoder import DecoderMultiPatch, DecoderAtlasNet
 from sampler import FNSamplerRandUniform
 from diff_props import DiffGeomProps
+import resnet as RN
 from estimateSurfaceProps import surfacePropLoss, normalAngularDifference
 from estimateSurfaceProps import criterionStitchingFullPatch, overlap_criterion
 
@@ -178,6 +179,7 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
 
     def __init__(self, M, num_patches, alpha_chd=1., 
                  loss_scaled_isometry  = False,
+                 loss_patch_areas     = False,
                  loss_smooth_surfaces = False, 
                  loss_patch_stitching = False, 
                  alpha_scaled_isometry= 0.,
@@ -204,6 +206,7 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         self._spp = M // num_patches  # Number of samples per patch.
         self._M = self._spp * num_patches
         self._loss_scaled_isometry = loss_scaled_isometry
+        self._loss_patch_areas     = loss_patch_areas        # zhantao
         self._loss_smooth_surfaces = loss_smooth_surfaces    # zhantao
         self._loss_patch_stitching = loss_patch_stitching    # zhantao
         self._alpha_scaled_isometry = alpha_scaled_isometry
@@ -257,6 +260,9 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
         if self._analyticalNormalCriterion:
             print("\tanalytical normal error would be given during training.")
             
+        if self._loss_patch_areas:
+            print("\ttotal area loss is enabled.")
+
         if loss_scaled_isometry:
             self._alphas_si = {k: torch.tensor(float(v)).to(self.device)
                                for k, v in alphas_sciso.items()}
@@ -322,7 +328,8 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
 
         return {'L_skew': L_F, 'L_E': L_E, 'L_G': L_G,
                 'L_stretch': L_stretch, 'L_Atot': L_Atot,
-                'loss_sciso': L_F + L_E + L_G + L_stretch + L_Atot}
+                'loss_sciso': L_F + L_E + L_G + L_stretch + L_Atot,
+                'loss_sciso_noArea': L_F + L_E + L_G + L_stretch}
 
     def loss(self, pc_gt, normals_gt=None, curvm_gt=None, curvg_gt=None,
              mask_nonbound_verts=None, areas_gt=None):
@@ -397,7 +404,11 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
                                                               normalVecGlobal.detach().to(self.device))
                 
             losses.update(**losses_sciso)
-            loss_sciso = losses_sciso['loss_sciso']
+            
+            if self._loss_patch_areas:
+                loss_sciso = losses_sciso['loss_sciso']
+            else:
+                loss_sciso = losses_sciso['loss_sciso_noArea']
 
         # Total loss.
         losses['loss_tot'] += self._alpha_scaled_isometry * loss_sciso
@@ -429,7 +440,8 @@ class AtlasNetReimpl(MultipatchDecoder):
                  dec_use_tanh=True, dec_batch_norm=True,
                  loss_scaled_isometry = False,
                  loss_smooth_surfaces = False,        # zhantao
-                 loss_patch_stitching = False,        # zhantap
+                 loss_patch_stitching = False,        # zhantao
+                 loss_patch_areas     = False,        # zhantao
                  numNeighborGlobal    = 20,           # zhantao
                  numNeighborPatchwise = 10,           # zhantao
                  alpha_scaled_isometry = 0., 
@@ -451,6 +463,7 @@ class AtlasNetReimpl(MultipatchDecoder):
         MultipatchDecoder.__init__(
             self, M, num_patches, 
             loss_scaled_isometry  = loss_scaled_isometry,
+            loss_patch_areas      = loss_patch_areas,        # zhantao
             loss_smooth_surfaces  = loss_smooth_surfaces,    # zhantao
             loss_patch_stitching  = loss_patch_stitching,    # zhantao 
             alpha_scaled_isometry = alpha_scaled_isometry,
@@ -463,7 +476,7 @@ class AtlasNetReimpl(MultipatchDecoder):
             surfaceVariance = useSurfaceVariance,            # zhantao
             angleThreshold  = angleThreshold,                # zhantao
             GlobalandPatch  = rejGlobalandPatch,             # zhantao 
-            predNormalforPatch    = predNormalasPatchwise,         # zhantao
+            predNormalforPatch    = predNormalasPatchwise,   # zhantao
             overlapCriterion= overlap_criterion,             # zhantao 
             overlapThreshold= overlap_threshold,             # zhantao 
             anaNormalCriterion= enableAnaNormalErr,          # zhantao
@@ -474,6 +487,108 @@ class AtlasNetReimpl(MultipatchDecoder):
         self._code = code
 
         self.enc = ANEncoderPN(code, normalize_cw=normalize_cw, gpu=gpu)
+        self.sampler = FNSamplerRandUniform((0., 1.), (0., 1.), M, gpu=gpu)
+        self.dec = DecoderMultiPatch(
+            num_patches, DecoderAtlasNet, code=code, sample_dim=2,
+            batch_norm=dec_batch_norm, activ_fns=dec_activ_fns,
+            use_tanh=dec_use_tanh, gpu=gpu, **kwargs)
+
+        # Load encoder weights.
+        if enc_load_weights is not None:
+            self.load_state_dict(torch.load(enc_load_weights), strict=False)
+            print('[INFO] Loaded weights for PointNet encoder from {}'.
+                  format(enc_load_weights))
+
+        # Freeze encoder.
+        if freeze_encoder:
+            self._freeze_encoder(freeze=True)
+
+    def forward(self, x, **kwargs):
+        B = x.shape[0]  # Batch size.
+        spp = self._spp
+
+        self.uv = self.sampler(B)
+        self.uv.requires_grad = True
+
+        # Get CWs from encoder.
+        cws = self.enc(x)  # (B, code)
+
+        # Get per-patch pcloud prediction.
+        outs = []  # Each (B, spp, 3)
+        for i in range(0, self._num_patches):
+            grid = self.uv[:, i * spp:(i + 1) * spp]  # (B, spp, 2)
+            y = cws.unsqueeze(1).expand(B, spp, self._code).contiguous()
+            y = torch.cat([grid, y], 2).contiguous()  # (B, spp, code + 2)
+            outs.append(self.dec[i](y, **kwargs))
+        self.pc_pred = torch.cat(outs, 1).contiguous()  # (B, M, 3)
+
+        # Get diff. geom. props.
+        self.geom_props = self.dgp(self.pc_pred, self.uv)
+
+
+class AtlasNetReimplEncImg(MultipatchDecoder):
+    """ Re-implementatio of the original atlasnet for auttencoding (AE) task
+    on images. It is possible to change the activation function of the decoder 
+    layers. `dec_activ_fns` changes all but last activations, `dec_use_tanh` 
+    chooses whether to use tanh or linear as a last activation. It is possible 
+    to add scaled_isometry loss using `loss_scaled_isometry` and parameterize 
+    it using `alpha_scaled_isometry` and `alphas_sciso`.
+    """
+    def __init__(self, M=2500, code=1024, num_patches=1,
+                 normalize_cw=False, freeze_encoder=False,
+                 enc_load_weights=None, dec_activ_fns='relu',
+                 dec_use_tanh=True, dec_batch_norm=True,
+                 loss_scaled_isometry = False,
+                 loss_smooth_surfaces = False,        # zhantao
+                 loss_patch_stitching = False,        # zhantao
+                 loss_patch_areas     = False,        # zhantao
+                 numNeighborGlobal    = 20,           # zhantao
+                 numNeighborPatchwise = 10,           # zhantao
+                 alpha_scaled_isometry = 0., 
+                 alphas_sciso = None, 
+                 alpha_scaled_surfProp = 0.,          # zhantao
+                 alpha_stitching    = 0.,             # zhantao
+                 useSurfaceNormal   = False,          # zhantao
+                 useSurfaceVariance = False,          # zhantao
+                 angleThreshold     = 3.14159,        # zhantao
+                 rejGlobalandPatch  = False,          # zhantao 
+                 predNormalasPatchwise = False,       # zhantao
+                 overlap_criterion  = False,          # zhantao 
+                 overlap_threshold  = 0.05,           # zhantao 
+                 enableAnaNormalErr = False,          # zhantao 
+                 marginSize         = 0.1,            # zhantao
+                 gpu = True,
+                 **kwargs):
+        
+        MultipatchDecoder.__init__(
+            self, M, num_patches, 
+            loss_scaled_isometry  = loss_scaled_isometry,
+            loss_patch_areas      = loss_patch_areas,        # zhantao
+            loss_smooth_surfaces  = loss_smooth_surfaces,    # zhantao
+            loss_patch_stitching  = loss_patch_stitching,    # zhantao 
+            alpha_scaled_isometry = alpha_scaled_isometry,
+            k_neighbor_Global     = numNeighborGlobal,       # zhantao 
+            k_neighbor_Patch      = numNeighborPatchwise,    # zhantao 
+            alphas_sciso = alphas_sciso, 
+            alpha_surfProp  = alpha_scaled_surfProp,         # zhantao
+            alpha_stitching = alpha_stitching,               # zhantao
+            surfaceNormal   = useSurfaceNormal,              # zhantao 
+            surfaceVariance = useSurfaceVariance,            # zhantao
+            angleThreshold  = angleThreshold,                # zhantao
+            GlobalandPatch  = rejGlobalandPatch,             # zhantao 
+            predNormalforPatch    = predNormalasPatchwise,   # zhantao
+            overlapCriterion= overlap_criterion,             # zhantao 
+            overlapThreshold= overlap_threshold,             # zhantao 
+            anaNormalCriterion= enableAnaNormalErr,          # zhantao
+            marginSize      = marginSize,                    # zhantao 
+            gpu=gpu)
+        
+        Device.__init__(self, gpu)
+
+        self._code = code
+
+        self.enc = RN.resnet18(pretrained=False, num_classes=code) \
+                     .to(self.device)
         self.sampler = FNSamplerRandUniform((0., 1.), (0., 1.), M, gpu=gpu)
         self.dec = DecoderMultiPatch(
             num_patches, DecoderAtlasNet, code=code, sample_dim=2,

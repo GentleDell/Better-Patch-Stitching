@@ -19,16 +19,18 @@ from timeit import default_timer as timer
 
 # project files
 import helpers
-from model import AtlasNetReimpl
-from data_loader import ShapeNet, DataLoaderDevice
+from model import AtlasNetReimplEncImg
+from data_loader_texless_defsurf import \
+    ImgAndPcloudFromDmapAndNormalsSyncedDataset
+from data_loader import DataLoaderDevice
+import jblib.file_sys as jbfs
+import jblib.deep_learning.torch_helpers as jbdlth
 
 # 3rd party
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-
-torch.autograd.set_detect_anomaly(True)
 
 # Settings.
 print_loss_tr_every = 50
@@ -38,7 +40,7 @@ gpu = torch.cuda.is_available()
 # Parse arguments.
 parser = argparse.ArgumentParser()
 parser.add_argument('--conf', help='Path to the main config file of the model.',
-                    default='config.yaml')
+                    default='conf_texless_defsurf.yaml')
 parser.add_argument('--output', help='Path to the output directory for storing '
                                      'weights and tensorboard data.',
                     default='./data')
@@ -49,15 +51,12 @@ args = parser.parse_args()
 # Load the config file, prepare paths.
 conf = helpers.load_conf(args.conf)
 
-# Model type, color mode.
-model_type = 'atlasnet_orig'
-
 # Prepare TB writers.
 writer_tr = SummaryWriter(helpers.jn(args.output, 'tr'))
 writer_va = SummaryWriter(helpers.jn(args.output, 'va'))
 
 # Build a model.
-model = AtlasNetReimpl(
+model = AtlasNetReimplEncImg(
     M=conf['M'], code= conf['code'], num_patches=conf['num_patches'],
     normalize_cw     = conf['normalize_cw'],
     freeze_encoder   = conf['enc_freeze'],
@@ -86,21 +85,16 @@ model = AtlasNetReimpl(
     marginSize       = conf['margin_size'],                    # zhantao
     gpu=gpu)
 
-# Create data loaders.
-ds_tr = ShapeNet(
-    conf['path_root_imgs'], conf['path_root_pclouds'],
-    conf['path_category_file'], class_choice=conf['tr_classes'], train=True,
-    npoints=conf['N'], load_area=True)
-ds_va = ShapeNet(
-    conf['path_root_imgs'], conf['path_root_pclouds'],
-    conf['path_category_file'], class_choice=conf['va_classes'], train=False,
-    npoints=conf['N'], load_area=True)
+# Create data loaders for SVR.
+K = np.loadtxt(conf['path_intrinsic_matrix'])
+ds_tr = ImgAndPcloudFromDmapAndNormalsSyncedDataset(
+    conf['path_root'], conf['obj_seqs_tr'], K, conf['N'], compute_area=True)
+ds_va = ImgAndPcloudFromDmapAndNormalsSyncedDataset(
+    conf['path_root'], conf['obj_seqs_va'], K, conf['N'], compute_area=True)
 dl_tr = DataLoaderDevice(DataLoader(
-    ds_tr, batch_size=conf['batch_size'], shuffle=True, num_workers=4,
-    drop_last=True), gpu=gpu)
+    ds_tr, batch_size=conf['batch_size'], shuffle=True, num_workers=4), gpu=gpu)
 dl_va = DataLoaderDevice(DataLoader(
-    ds_va, batch_size=conf['batch_size'], shuffle=True, num_workers=2,
-    drop_last=True), gpu=gpu)
+    ds_va, batch_size=conf['batch_size'], shuffle=True, num_workers=2), gpu=gpu)
 
 print('Train ds: {} samples'.format(len(ds_tr)))
 print('Valid ds: {} samples'.format(len(ds_va)))
@@ -108,23 +102,25 @@ print('Valid ds: {} samples'.format(len(ds_va)))
 # Prepare training.
 opt = torch.optim.Adam(model.parameters(), lr=conf['lr'])
 
-# Resume training if required
-if args.resume:
-    print("Resuming training")
-    trstate = torch.load(helpers.jn(args.output, 'chkpt.tar'))
-    model.load_state_dict(trstate['weights'])
-    opt.load_state_dict(trstate['optimizer'])
-
 scheduler = None
 if conf['reduce_lr_on_plateau']:
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         opt, factor=conf['lr_factor'], patience=conf['lr_patience'],
         min_lr=conf['lr_min'], threshold=conf['lr_threshold'], verbose=True)
 
-# Prepare savers.
-saver = helpers.TrainStateSaver(
-    helpers.jn(args.output, 'chkpt.tar'), model=model, optimizer=opt,
-    scheduler=scheduler)
+# Resume training if required
+if args.resume:
+    print("Resuming training")
+    trstate = torch.load(helpers.jn(args.output, 'chkpt.tar'))
+    model.load_state_dict(trstate['weights'])
+    opt.load_state_dict(trstate['optimizer'])
+    if 'scheduler' in trstate and conf['reduce_lr_on_plateau']:
+        scheduler.load_state_dict(trstate['scheduler'])
+    del trstate
+
+# Prepare savers for SVR.
+saver = jbdlth.TrainStateSaver(jbfs.jn(args.output, 'chkpt.tar'),
+                               model=model, optimizer=opt, scheduler=scheduler)
 
 # Training loop.
 iters_tr = int(np.ceil(len(ds_tr) / float(conf['batch_size'])))
@@ -137,11 +133,21 @@ for ep in range(1, conf['epochs'] + 1):
     model.train()
     for bi, batch in enumerate(dl_tr, start=1):
         it = (ep - 1) * iters_tr + bi
-        model(batch['pcloud'], it=it)
-        losses = model.loss(batch['pcloud'], normals_gt=batch['normals'], areas_gt=batch['area'])
+        
+        model(batch['img'], it=it)
+        if jbdlth.has_inf_nan(model.pc_pred):
+            import pdb; pdb.set_trace()
+            
+        losses = model.loss(batch['pc'], normals_gt=batch['normals'], areas_gt=batch['area'])
+        if jbdlth.has_inf_nan(list(losses.values())):
+            import pdb; pdb.set_trace()
 
         opt.zero_grad()
+        
         losses['loss_tot'].backward()
+        if jbdlth.has_inf_nan(list(model.parameters())):
+            import pdb; pdb.set_trace()
+        
         opt.step()
 
         losses_tr.update(**{k: v.item() for k, v in losses.items()})
@@ -169,7 +175,7 @@ for ep in range(1, conf['epochs'] + 1):
                            conf['batch_size']), 2,
                 np.maximum(conf['N'], conf['M']), 3)
             assert clrs_vis.shape == pcs_vis.shape
-            for idx, (pc, clr) in enumerate(zip(pcs_vis, clrs_vis)):  # (2, P,3)
+            for idx, (pc, clr) in enumerate(zip(pcs_vis, clrs_vis)): # (2, P, 3)
                 writer_tr.add_mesh('pc_{}'.format(idx), vertices=pc, colors=clr,
                                    global_step=it)
 
@@ -186,11 +192,18 @@ for ep in range(1, conf['epochs'] + 1):
     it = ep * iters_tr
     loss_va_run = 0.
     for bi, batch in enumerate(dl_va):
-        curr_bs = batch['pcloud'].shape[0]
-        model(batch['pcloud'])
+        curr_bs = batch['img'].shape[0]
+        
+        model(batch['img'])
+        if jbdlth.has_inf_nan(model.pc_pred):
+            import pdb; pdb.set_trace()
+        
         lv = model.loss(batch['pcloud'], normals_gt=batch['normals'], areas_gt=batch['area'])['loss_tot']
+        if jbdlth.has_inf_nan(lv):
+            import pdb; pdb.set_trace()
+            
         loss_va_run += lv.item() * curr_bs
-
+        
         # Save pclouds.
         if bi == 1 and conf['pcloud_save_period'] != 0 and \
                 ep % conf['pcloud_save_period'] == 0:
