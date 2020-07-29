@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Created on Tue Jul 28 16:35:37 2020
+
+@author: zhantao
+"""
+
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Created on Wed May 13 23:32:40 2020
 
 @author: zhantao
@@ -14,8 +23,10 @@ import torch
 from torch.utils.data import DataLoader
 
 import helpers as helpers
-from model import AtlasNetReimpl
+from model import AtlasNetReimplEncImg
 from data_loader import ShapeNet, DataLoaderDevice
+from data_loader_texless_defsurf import \
+    ImgAndPcloudFromDmapAndNormalsSyncedDataset
 from sampler import FNSamplerRegularGrid
 
 
@@ -43,8 +54,13 @@ def compareOurs(path_conf: str, path_weight: str):
     conf = helpers.load_conf(path_conf)
     trstate = torch.load(path_weight)
     gpu  = torch.cuda.is_available()
-
-    #### ONLY FOR EVALUATION ####
+    
+    # subfolder to save predicted point clouds
+    folder2save = pjn( '/'.join(path_weight.split('/')[:-1]), 'prediction')
+    if not os.path.isdir(folder2save):
+        os.mkdir(folder2save)
+    
+    #### ONLY FOR EVALUATION ####    
     conf['loss_patch_area']        = True
     conf['show_overlap_criterion'] = True
     conf['overlap_threshold']    = 0.05
@@ -60,8 +76,8 @@ def compareOurs(path_conf: str, path_weight: str):
     #### ONLY FOR EVALUATION ####
 
     # resume pretrained model
-    model = AtlasNetReimpl(
-        M=conf['M'], code=conf['code'], num_patches=conf['num_patches'],
+    model = AtlasNetReimplEncImg(
+        M=conf['M'], code= conf['code'], num_patches=conf['num_patches'],
         normalize_cw     = conf['normalize_cw'],
         freeze_encoder   = conf['enc_freeze'],
         enc_load_weights = conf['enc_weights'],
@@ -84,7 +100,7 @@ def compareOurs(path_conf: str, path_weight: str):
         rejGlobalandPatch  = conf["reject_GlobalandPatch"],        # zhantao
         predNormalasPatchwise = conf['PredNormalforpatchwise'],    # zhantao
         overlap_criterion  = conf['show_overlap_criterion'],       # zhantao 
-        overlap_threshold  = conf['overlap_threshold'],            # zhantao
+        overlap_threshold  = conf['overlap_threshold'],            # zhantao 
         enableAnaNormalErr = conf['show_analyticalNormalDiff'],    # zhantao
         marginSize       = conf['margin_size'],                    # zhantao
         gpu=gpu)
@@ -97,15 +113,12 @@ def compareOurs(path_conf: str, path_weight: str):
                                          model._num_patches, gpu=gpu)
     
     # prepare data set
-    ds_va = ShapeNet(
-        conf['path_root_imgs'], conf['path_root_pclouds'],
-        conf['path_category_file'], class_choice=conf['va_classes'], train=False,  # to use 80% of the data 
-        npoints=conf['N'], load_area=True)
-    
-    dl_va = DataLoaderDevice( DataLoader(
-        ds_va, batch_size = conf['batch_size'], shuffle=False, num_workers=2,   # shuffle is turned off
-        drop_last=True), gpu=gpu )
-    
+    K = np.loadtxt(conf['path_intrinsic_matrix'])   
+    ds_va = ImgAndPcloudFromDmapAndNormalsSyncedDataset(
+        conf['path_root'], conf['obj_seqs_te'], K, conf['N'], compute_area=True)
+    dl_va = DataLoaderDevice(DataLoader(
+        ds_va, batch_size=conf['batch_size'], shuffle=False, num_workers=2), gpu=gpu)
+        
     # point cloud inference
     stitchCriterion = []
     normalDifference= []
@@ -116,8 +129,10 @@ def compareOurs(path_conf: str, path_weight: str):
     
     for bi, batch in enumerate(dl_va):
         
-        model(batch['pcloud'])
-        losses = model.loss(batch['pcloud'], normals_gt=batch['normals'], areas_gt=batch['area'])
+        it = bi
+        model(batch['img'], it=it)
+        
+        losses = model.loss(batch['pc'], normals_gt=batch['normals'], areas_gt=batch['area'])
         
         stitchCriterion.append (losses['Err_stitching'].to('cpu'))
         normalDifference.append(losses['normalDiff'].to('cpu'))
@@ -127,13 +142,8 @@ def compareOurs(path_conf: str, path_weight: str):
         chamferDistance.append (losses['loss_chd'].detach().to('cpu'))
         
         torch.cuda.empty_cache() 
-        
-        # save point clouds
-        # folder2save = pjn( '/'.join(path_weight.split('/')[:-1]), 'prediction')
-        # if not os.path.isdir(folder2save):
-        #     os.mkdir(folder2save)
-            
-        # torch.save( model.pc_pred.detach().cpu(), pjn(folder2save, 'regularSample{}.pt'.format(bi))) 
+                    
+        torch.save( model.pc_pred.detach().cpu(), pjn(folder2save, 'regularSample{}.pt'.format(bi))) 
     
     criterion  = torch.cat((torch.tensor(stitchCriterion) [:,None], 
                             torch.tensor(normalDifference)[:,None],
@@ -144,13 +154,13 @@ def compareOurs(path_conf: str, path_weight: str):
     
     # print(criterion)
     
-    error_file = open( pjn( '/'.join(path_weight.split('/')[:-1]),'regularSampleFull{}_errors.txt'.format(bi)), 'w')
+    error_file = open( pjn( folder2save,'regularSampleFull{}_errors.txt'.format(bi)), 'w')
     np.savetxt( error_file, 
                 criterion, 
                 delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
     error_file.close()
     
-    avgErr_file = open( pjn( '/'.join(path_weight.split('/')[:-1]),'regularSampleFull{}_avgErrors.txt'.format(bi)), 'w')
+    avgErr_file = open( pjn( folder2save,'regularSampleFull{}_avgErrors.txt'.format(bi)), 'w')
     np.savetxt( avgErr_file, 
                 criterion.mean(axis = 0), 
                 delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
@@ -186,15 +196,18 @@ def inferenceAll(conf_path: str, weightFolder : str):
             continue
         
         weightpath =  glob.glob( pjn(folder, '*.tar') )[0]
+        # weightpath = './data/chkpt_cellphone_ep235.tar'
         
         if conf_path is None:
-            temp_path = glob.glob( pjn(folder, 'config.yaml') )[0]
+            temp_path = glob.glob( pjn(folder, 'conf_texless_defsurf.yaml') )[0]
+            # conf_path = './config.yaml'
             print(temp_path)
             compareOurs(temp_path, weightpath)
-	else:
+            
+        else:
             compareOurs(conf_path, weightpath)
 
 
 path_conf = None
 
-inferenceAll(path_conf, '../../syn_server/data/cellphone/Knn_gtnormal_bothGlobalandPatchwise/')
+inferenceAll(path_conf, '../../models/comparison/SVR_TDS/tshirt/')

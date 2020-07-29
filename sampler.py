@@ -103,7 +103,9 @@ class FNSamplerRegularGrid(FNSampler2D):
         self._num_samples = num_samples
         self._num_patches = num_patches
         
-    def forward(self, B, num_samples=None, u_range=None, v_range=None):
+    def forward(self, B, num_samples=None, 
+                n_x = None, n_y = None,
+                u_range=None, v_range=None):
         """
         Args:
             B (int): Current batch size.
@@ -113,11 +115,25 @@ class FNSamplerRegularGrid(FNSampler2D):
                 shape (B, `num_samples`, 2).
         """
         ns = torch.sqrt(torch.tensor((num_samples, self._num_samples)[num_samples is None]/self._num_patches))
+        
+        if n_x is not None and n_y is not None:
+            ns_x = n_x
+            ns_y = n_y
+        elif ns.item().is_integer():
+            ns_x = ns
+            ns_y = ns
+        else:
+            ns_x = torch.tensor(10.0)
+            ns_y = torch.tensor((num_samples, self._num_samples)[num_samples is None]/self._num_patches)//ns_x
+            if not ns_y.item().is_integer():
+                print("The number of samples (points), i.e. M, after being divided by the number of patches, should be n*10.")
+                raise ValueError
+        
         ur = (u_range, self._u_range)[u_range is None]
         vr = (v_range, self._v_range)[v_range is None]
         
-        xs = torch.linspace(ur[0], ur[1], ns.int().item())
-        ys = torch.linspace(vr[0], vr[1], ns.int().item())
+        xs = torch.linspace(ur[0], ur[1], ns_x.int().item())
+        ys = torch.linspace(vr[0], vr[1], ns_y.int().item())
         xg, yg = torch.meshgrid(xs, ys)        
 
         return torch.cat(

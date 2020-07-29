@@ -168,7 +168,7 @@ for ep in range(1, conf['epochs'] + 1):
         if bi == 1 and conf['pcloud_save_period'] != 0 and \
                 ep % conf['pcloud_save_period'] == 0:
             pcs_vis, clrs_vis = helpers.pclouds2vis(
-                batch['pcloud'].cpu(), model.pc_pred.detach().cpu(),
+                batch['pc'].cpu(), model.pc_pred.detach().cpu(),
                 conf['pcloud_samples_per_period'], conf)
             assert pcs_vis.shape == (
                 np.minimum(conf['pcloud_samples_per_period'],
@@ -198,7 +198,7 @@ for ep in range(1, conf['epochs'] + 1):
         if jbdlth.has_inf_nan(model.pc_pred):
             import pdb; pdb.set_trace()
         
-        lv = model.loss(batch['pcloud'], normals_gt=batch['normals'], areas_gt=batch['area'])['loss_tot']
+        lv = model.loss(batch['pc'], normals_gt=batch['normals'], areas_gt=batch['area'])['loss_tot']
         if jbdlth.has_inf_nan(lv):
             import pdb; pdb.set_trace()
             
@@ -208,7 +208,7 @@ for ep in range(1, conf['epochs'] + 1):
         if bi == 1 and conf['pcloud_save_period'] != 0 and \
                 ep % conf['pcloud_save_period'] == 0:
             pcs_vis, clrs_vis = helpers.pclouds2vis(
-                batch['pcloud'].cpu(), model.pc_pred.detach().cpu(),
+                batch['pc'].cpu(), model.pc_pred.detach().cpu(),
                 conf['pcloud_samples_per_period'], conf)
             assert pcs_vis.shape == (
                 np.minimum(conf['pcloud_samples_per_period'],

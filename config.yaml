@@ -8,9 +8,9 @@
 #
 
 # Data
-path_root_imgs: '../../Dataset_mini/ShapeNetRendering/ShapeNetRendering'
-path_root_pclouds: '../../Dataset_mini/customShapeNet'
-path_category_file: '../../Dataset_mini/ShapeNetRendering/synsetoffset2category.txt'
+path_root_imgs: '../Dataset_mini/SN/ShapeNetRendering/ShapeNetRendering'
+path_root_pclouds: '../Dataset_mini/SN/customShapeNet'
+path_category_file: '../Dataset_mini/SN/ShapeNetRendering/synsetoffset2category.txt'
 
 ### Model
 N: 2500

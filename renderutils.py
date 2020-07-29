@@ -8,6 +8,7 @@ Some pytorch3D render codes are from the Facebook pytorch3D project.
 @author: zhantao
 """
 import math
+from glob import glob
 from os.path import join as pjn
 
 import torch 
@@ -383,11 +384,14 @@ def meshToOBJ( pathToPc: str, numPatch: int, folderToSave: str ):
             f.writelines(OBJ)
     
 
-renderPointcloud('../../models/comparison/plane/G8Pred/plane100_countinue100_001_normalOnly_kG8P8_gtNormal_GlobalandPatch_120d_withPredNormal_stitching/prediction/regularSample0.pt', 25,
-                  camera = (1.5, 20.0, 180.0), light = (0.0, 2.0, 0.0))
-# chair/G4Pred/chair50_continue25_001_normalOnly_kG4P4_gtNormal_GlobalandPatch_120d_noPredNormal/prediction
-# camera = (1.2, 20.0, 180.0), light = (0.0, 2.0, 0.0)
+# renderPointcloud('../../models/comparison/car_fromPretrained/G8Pred/plane100_countinue100_001_normalOnly_kG8P8_gtNormal_GlobalandPatch_120d_withPredNormal_stitching/prediction/regularSample0.pt', 25,
+#                   camera = (1.5, 20.0, 180.0), light = (0.0, 2.0, 0.0))
+# # chair/G4Pred/chair50_continue25_001_normalOnly_kG4P4_gtNormal_GlobalandPatch_120d_noPredNormal/prediction
+# # camera = (1.2, 20.0, 180.0), light = (0.0, 2.0, 0.0)
 
-# meshToOBJ('../../models/comparison/car_fromPretrained/G4Pred/carPre_continue50_001_normalOnly_kG4P4_gtNormal_GlobalandPatch_120d_withPredNormal_stitching/prediction/regularSample11.pt', 
-#           25,
-#           '../../RenderedResults/OBJ/car/OUR2_withN_stitching')
+
+path2Pc = '../../models/comparison/couch/couch150_continue50_None/prediction'
+path2Sv = '../../RenderedResults/OBJ/couch/G4Pred'
+
+for pc in sorted( glob(pjn(path2Pc, '*.pt')) ):
+    meshToOBJ(pc, 25, path2Sv)
