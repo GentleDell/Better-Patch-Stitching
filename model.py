@@ -356,11 +356,12 @@ class MultipatchDecoder(FNDiffGeomPropsBase):
             
             # overlapCriterion
             if self._compute_overlapCriterion:
-                losses_sciso['overlapCriterion'] = overlap_criterion(
-                        pc_gt.detach(),
-                        self.pc_pred.detach(), 
-                        threshold = self._overlap_threshold, 
-                        numPatches = self._num_patches)
+                overlaps = overlap_criterion(
+                                pc_gt.detach(),
+                                self.pc_pred.detach(), 
+                                threshold = self._overlap_threshold, 
+                                numPatches = self._num_patches)
+                losses_sciso['overlapCriterion'] = (overlaps, torch.Tensor([-1.]).to(self.device))[overlaps is None]
             
             # analytically computed normal difference 
             if self._analyticalNormalCriterion:

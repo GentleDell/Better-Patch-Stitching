@@ -92,12 +92,12 @@ model = AtlasNetReimplEncImg(
 # Create data loaders.
 ds_tr = ShapeNet(
     conf['path_root_imgs'], conf['path_root_pclouds'],
-    conf['path_category_file'], class_choice=conf['tr_classes'], train=True,
-    SVR = True, npoints=conf['N'], load_area=True)
+    conf['path_category_file'], class_choice=conf['tr_classes'], train=True,    # training set
+    test=False, SVR = True, npoints=conf['N'], load_area=True)
 ds_va = ShapeNet(
     conf['path_root_imgs'], conf['path_root_pclouds'],
-    conf['path_category_file'], class_choice=conf['va_classes'], train=False,
-    SVR = True, npoints=conf['N'], load_area=True)
+    conf['path_category_file'], class_choice=conf['va_classes'], train=False,   # validation set (train False, test True => test set)
+    test=False, SVR = True, npoints=conf['N'], load_area=True)
 dl_tr = DataLoaderDevice(DataLoader(
     ds_tr, batch_size=conf['batch_size'], shuffle=True, num_workers=4,
     drop_last=True), gpu=gpu)

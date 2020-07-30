@@ -99,8 +99,8 @@ def compareOurs(path_conf: str, path_weight: str):
     # prepare data set
     ds_va = ShapeNet(
         conf['path_root_imgs'], conf['path_root_pclouds'],
-        conf['path_category_file'], class_choice=conf['va_classes'], train=False,  # to use 80% of the data 
-        npoints=conf['N'], load_area=True)
+        conf['path_category_file'], class_choice=conf['va_classes'], train=False, 
+        test=True, npoints=conf['N'], load_area=True)
     
     dl_va = DataLoaderDevice( DataLoader(
         ds_va, batch_size = conf['batch_size'], shuffle=False, num_workers=2,   # shuffle is turned off
@@ -150,9 +150,12 @@ def compareOurs(path_conf: str, path_weight: str):
                 delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
     error_file.close()
     
+    # save the average error
     avgErr_file = open( pjn( '/'.join(path_weight.split('/')[:-1]),'regularSampleFull{}_avgErrors.txt'.format(bi)), 'w')
+    avgError    = criterion.mean(axis = 0)
+    avgError[3] = criterion[criterion[:,3] > 0, 3].mean()    # remove invalid cases before averaging
     np.savetxt( avgErr_file, 
-                criterion.mean(axis = 0), 
+                avgError, 
                 delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
     avgErr_file.close()
         

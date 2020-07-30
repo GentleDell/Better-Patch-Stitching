@@ -51,10 +51,11 @@ class ShapeNet(Dataset):
     """
 
     def __init__(self, rootimg, rootpc, path_category_file,
-                 class_choice='chair', train=True, npoints=2500,
+                 class_choice='chair', train=True, test=False, npoints=2500,
                  gen_view=False, SVR=False, idx=0, load_area=False):
         super(ShapeNet, self).__init__()
         self.train = train
+        self.test  = test
         self.rootimg = rootimg
         self.rootpc = rootpc
         self.npoints = npoints
@@ -97,11 +98,19 @@ class ShapeNet(Dataset):
             print('category ', self.cat[item], 'files ' + str(len(fns)),
                   len(fns) / float(len(fns_img)), "%"),
 
-            # Select train/valid subset.
-            if train:
+            # Select train/valid/test subset.
+            if train:    
+                # the first 80% data
+                print('construct training set')
                 fns = fns[:int(len(fns) * 0.8)]
-            else:
-                fns = fns[int(len(fns) * 0.8):]
+            elif test:   
+                # test last 10% data
+                print('construct testing set')
+                fns = fns[int(len(fns) * 0.9):]
+            else:        
+                # the 80% - 90% data
+                print('construct validation set')
+                fns = fns[int(len(fns) * 0.8) : int(len(fns) * 0.9)]
 
             if len(fns) != 0:
                 self.meta[item] = []

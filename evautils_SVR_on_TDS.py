@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 
 import helpers as helpers
 from model import AtlasNetReimplEncImg
-from data_loader import ShapeNet, DataLoaderDevice
+from data_loader import DataLoaderDevice
 from data_loader_texless_defsurf import \
     ImgAndPcloudFromDmapAndNormalsSyncedDataset
 from sampler import FNSamplerRegularGrid
@@ -143,7 +143,7 @@ def compareOurs(path_conf: str, path_weight: str):
         
         torch.cuda.empty_cache() 
                     
-        torch.save( model.pc_pred.detach().cpu(), pjn(folder2save, 'regularSample{}.pt'.format(bi))) 
+        # torch.save( model.pc_pred.detach().cpu(), pjn(folder2save, 'regularSample{}.pt'.format(bi))) 
     
     criterion  = torch.cat((torch.tensor(stitchCriterion) [:,None], 
                             torch.tensor(normalDifference)[:,None],
@@ -154,15 +154,19 @@ def compareOurs(path_conf: str, path_weight: str):
     
     # print(criterion)
     
+    # save all results for reference
     error_file = open( pjn( folder2save,'regularSampleFull{}_errors.txt'.format(bi)), 'w')
     np.savetxt( error_file, 
                 criterion, 
                 delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
     error_file.close()
     
+    # save the average error
     avgErr_file = open( pjn( folder2save,'regularSampleFull{}_avgErrors.txt'.format(bi)), 'w')
+    avgError    = criterion.mean(axis = 0)
+    avgError[3] = criterion[criterion[:,3] > 0, 3].mean()    # remove invalid cases before averaging
     np.savetxt( avgErr_file, 
-                criterion.mean(axis = 0), 
+                avgError, 
                 delimiter=',', header = 'stitching_error, normalAngulardiff, consistency_loss, overlapCriterion, analyticalNorrmalAngularDiff, CHD', comments="#")
     avgErr_file.close()
         

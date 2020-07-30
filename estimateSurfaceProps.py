@@ -879,6 +879,13 @@ def overlap_criterion(gtPoints: Tensor, predPoints: Tensor, threshold: float,
                    ).pow(2).sum(dim = 3).sqrt()
 
     bchInd, gtInd, srcInd  = torch.where(distanceMatrix <= threshold)
+    
+    # if the smallest distance is greater than the threshold, skip this point
+    # cloud and return None.
+    if bchInd.size()[0] == 0:
+        return None
+    
+    # otherwise average over these valid points
     patchInd = srcInd//patchSize
     maskMat= torch.zeros([bchInd.max().int().item()+1, 
                           gtInd.max().int().item()+1,
