@@ -1,7 +1,7 @@
 # Better Patch Stitching
 This repository contains the official source code of the paper [Better Patch Stitching for Parametric Surface Reconstruction](https://arxiv.org/abs/2010.07021) published in 3DV 2020.
 
-![teaser](img/teaser.gif "teaser")
+<img src="img/teaser.gif" width="300">
 
 ## Dependencies and Dataset
 This project is based on the [differential_surface_representation](https://github.com/bednarikjan/differential_surface_representation) and has the same dependencies as it. So, please follow the [Environment](https://github.com/bednarikjan/differential_surface_representation#environment) section to configure the environment. Besides, the dataset which the work relies on, ShapeNet and the precomputed GT surface areas, can be obtained as [this section](https://github.com/bednarikjan/differential_surface_representation#data).
